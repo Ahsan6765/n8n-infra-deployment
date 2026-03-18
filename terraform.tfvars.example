@@ -1,0 +1,37 @@
+# =============================================================================
+# Example variable values – copy to terraform.tfvars and fill in your values
+# =============================================================================
+
+# General
+aws_region   = "us-east-1"
+project_name = "k8s-cluster"
+environment  = "production"
+owner        = "platform-team"
+
+# Networking
+vpc_cidr            = "10.0.0.0/16"
+public_subnet_cidrs = ["10.0.1.0/24", "10.0.2.0/24", "10.0.3.0/24"]
+availability_zones  = ["us-east-1a", "us-east-1b", "us-east-1c"]
+
+# SSH – leave empty to auto-generate, or paste your public key:
+# ssh_public_key = "ssh-rsa AAAA..."
+admin_ssh_cidr = "0.0.0.0/0"   # ⚠ Tighten to your IP in production
+
+# EC2 Nodes
+master_instance_type = "t3.medium"
+worker_instance_type = "t3.medium"
+worker_count         = 3
+node_volume_size     = 50
+node_volume_type     = "gp3"
+
+# S3 – MUST be globally unique
+state_bucket_name    = "my-k8s-tf-state-20240101"
+artifact_bucket_name = "my-k8s-artifacts-20240101"
+state_lock_table_name = "my-k8s-tf-lock"
+
+# Route 53
+domain_name         = "k8s.example.com"
+create_route53_zone = true
+
+# RKE2
+rke2_version = "v1.29"

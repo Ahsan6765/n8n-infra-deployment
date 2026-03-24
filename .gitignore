@@ -1,60 +1,14 @@
 # =============================================================================
-# Terraform Core Files
+# Project Root .gitignore
 # =============================================================================
-.terraform/
-.terraform.lock.hcl
+
+# =============================================================================
+# Terraform-Related Files (Root Level)
+# =============================================================================
 *.tfstate
 *.tfstate.*
-*.tfstate.backup
-crash.log
-crash.*.log
-override.tf
-override.tf.json
-*_override.tf
-*_override.tf.json
-
-# =============================================================================
-# Environment-Specific tfvars Files (SENSITIVE - do not commit)
-# =============================================================================
-# Development
-terraform.dev.tfvars
-terraform.dev.tfvars.json
-
-# Staging
-terraform.staging.tfvars
-terraform.staging.tfvars.json
-
-# Production
-terraform.prod.tfvars
-terraform.prod.tfvars.json
-
-# Any other environment
-terraform.*.tfvars
-terraform.*.tfvars.json
-!terraform.tfvars.example  # Keep example file for reference
-!terraform.*.tfvars.example
-
-# =============================================================================
-# SSH Keys and Private Key Material (CRITICAL SECURITY)
-# =============================================================================
-*.pem
-*.key
-*.pub
+cluster-key.pem
 cluster-key*
-!*.pub.example
-private_key*
-**/id_rsa*
-**/id_ed25519*
-.ssh/
-
-# =============================================================================
-# Kubeconfig Files (Contains sensitive credentials)
-# =============================================================================
-*.kubeconfig
-kubeconfig
-kubeconfig.*
-.kube/config
-home/ubuntu/.kube/
 
 # =============================================================================
 # IDE / Editor Files
@@ -67,12 +21,6 @@ home/ubuntu/.kube/
 .DS_Store
 *.sublime-project
 *.sublime-workspace
-.project
-.pydevproject
-.settings/
-*.iml
-*.iws
-*.ipr
 
 # =============================================================================
 # OS-Specific Files
@@ -86,23 +34,16 @@ ehthumbs.db
 Thumbs.db
 
 # =============================================================================
-# Logs
+# Logs and Temporary Files
 # =============================================================================
 *.log
 logs/
 *.out
-
-# =============================================================================
-# Temporary and Build Files
-# =============================================================================
 *.tmp
 *.temp
 *.bak
-*.backup
 temp/
 tmp/
-build/
-dist/
 
 # =============================================================================
 # Environment Files
@@ -110,22 +51,43 @@ dist/
 .env
 .env.local
 .env.*.local
-.envrc
 
 # =============================================================================
-# CI/CD Artifacts (optional, depending on your pipeline)
+# Node/NPM (if applicable)
 # =============================================================================
-.terraform.d/
-plugin-cache/
+node_modules/
+npm-debug.log
+yarn.lock
+package-lock.json
 
 # =============================================================================
-# AWS-Specific Files
+# Python-Related (if applicable)
 # =============================================================================
-.aws/
-aws-credentials
-aws_credentials.txt
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+.venv/
+venv/
+env/
 
 # =============================================================================
-# Terraform Copy Variables File (for reference/documentation)
+# Documentation Build Artifacts
 # =============================================================================
-.terraform.tfvars.backup
+docs/_build/
+site/
+
+# =============================================================================
+# SSH Keys (critical security)
+# =============================================================================
+*.pem
+*.key
+!*.pub
+.ssh/
+
+# =============================================================================
+# Kubeconfig Files
+# =============================================================================
+*.kubeconfig
+kubeconfig
+.kube/

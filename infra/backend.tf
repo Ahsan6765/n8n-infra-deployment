@@ -5,7 +5,7 @@
 #       Run:  terraform apply -target=module.s3
 #       Then uncomment this block and re-run:  terraform init -migrate-state
 # =============================================================================
-
+# storing state file on s3
 terraform {
   backend "s3" {
     bucket         = "k8s-cluster-tf-state" # override with var at init time

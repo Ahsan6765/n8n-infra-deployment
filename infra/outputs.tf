@@ -13,20 +13,36 @@ output "public_subnet_ids" {
   value       = module.vpc.public_subnet_ids
 }
 
-# ---- Master node ----
+# ---- Master node(s) ----
+output "master_public_ips" {
+  description = "List of Elastic IP addresses of the Kubernetes master nodes."
+  value       = [for master in module.k8s_master : master.public_ip]
+}
+
+output "master_private_ips" {
+  description = "List of private IPs of the master nodes (used by workers to join)."
+  value       = [for master in module.k8s_master : master.private_ip]
+}
+
+output "master_instance_ids" {
+  description = "List of EC2 instance IDs of the master node(s)."
+  value       = [for master in module.k8s_master : master.instance_id]
+}
+
+# For backward compatibility, expose first master if it exists
 output "master_public_ip" {
-  description = "Elastic IP address of the Kubernetes master node."
-  value       = module.k8s_master.public_ip
+  description = "Elastic IP address of the first Kubernetes master node (for backward compatibility)."
+  value       = length(module.k8s_master) > 0 ? module.k8s_master[0].public_ip : null
 }
 
 output "master_private_ip" {
-  description = "Private IP of the master node (used by workers to join)."
-  value       = module.k8s_master.private_ip
+  description = "Private IP of the first master node (for backward compatibility)."
+  value       = length(module.k8s_master) > 0 ? module.k8s_master[0].private_ip : null
 }
 
 output "master_instance_id" {
-  description = "EC2 instance ID of the master node."
-  value       = module.k8s_master.instance_id
+  description = "EC2 instance ID of the first master node (for backward compatibility)."
+  value       = length(module.k8s_master) > 0 ? module.k8s_master[0].instance_id : null
 }
 
 # ---- Worker nodes ----
@@ -81,7 +97,16 @@ output "wildcard_dns" {
 }
 
 # ---- SSH command ----
+output "ssh_master_commands" {
+  description = "SSH commands to connect to the master node(s)."
+  value = [
+    for idx, master in module.k8s_master :
+    "ssh -i cluster-key.pem ubuntu@${master.public_ip}"
+  ]
+}
+
+# For backward compatibility
 output "ssh_master_command" {
-  description = "Ready-to-use SSH command to connect to the master node."
-  value       = "ssh -i cluster-key.pem ubuntu@${module.k8s_master.public_ip}"
+  description = "Ready-to-use SSH command to connect to the first master node."
+  value       = length(module.k8s_master) > 0 ? "ssh -i cluster-key.pem ubuntu@${module.k8s_master[0].public_ip}" : null
 }

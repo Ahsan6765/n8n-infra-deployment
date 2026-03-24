@@ -81,15 +81,15 @@ module "security_groups" {
   admin_ssh_cidr = var.admin_ssh_cidr
 }
 
-# -----------------------------------------------------------------------------
-# K8s Master Node (1 instance)
-# -----------------------------------------------------------------------------
+# K8s Master Node(s) – RKE2 server (scalable via master_count variable)
+# =============================================================================
 module "k8s_master" {
+  count  = var.master_count
   source = "./modules/k8s_master"
 
   project_name         = var.project_name
   environment          = var.environment
-  subnet_id            = module.vpc.public_subnet_ids[0]
+  subnet_id            = module.vpc.public_subnet_ids[count.index % length(module.vpc.public_subnet_ids)]
   security_group_ids   = [module.security_groups.master_sg_id]
   instance_type        = var.master_instance_type
   key_name             = module.key_pair.key_name
@@ -102,8 +102,8 @@ module "k8s_master" {
 }
 
 # -----------------------------------------------------------------------------
-# K8s Worker Nodes (3 instances)
-# -----------------------------------------------------------------------------
+# K8s Worker Nodes – RKE2 agents (scalable via worker_count variable)
+# =============================================================================
 module "k8s_workers" {
   source = "./modules/k8s_worker"
 
@@ -118,8 +118,8 @@ module "k8s_workers" {
   volume_size          = var.node_volume_size
   volume_type          = var.node_volume_type
   rke2_version         = var.rke2_version
-  master_private_ip    = module.k8s_master.private_ip
-  rke2_token           = module.k8s_master.rke2_token
+  master_private_ip    = module.k8s_master[0].private_ip
+  rke2_token           = module.k8s_master[0].rke2_token
   aws_region           = var.aws_region
 }
 
@@ -131,7 +131,7 @@ module "route53" {
 
   domain_name      = var.domain_name
   create_zone      = var.create_route53_zone
-  master_public_ip = module.k8s_master.public_ip
+  master_public_ip = module.k8s_master[0].public_ip
   project_name     = var.project_name
   environment      = var.environment
 }

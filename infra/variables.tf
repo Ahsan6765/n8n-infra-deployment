@@ -71,6 +71,12 @@ variable "worker_instance_type" {
   default     = "t3.medium"
 }
 
+variable "master_count" {
+  description = "Number of Kubernetes master nodes to create (typically 1)."
+  type        = number
+  default     = 1
+}
+
 variable "worker_count" {
   description = "Number of Kubernetes worker nodes to create."
   type        = number

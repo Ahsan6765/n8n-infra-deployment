@@ -97,6 +97,7 @@ module "k8s_master" {
   volume_size          = var.node_volume_size
   volume_type          = var.node_volume_type
   rke2_version         = var.rke2_version
+  domain_name          = var.domain_name
   aws_region           = var.aws_region
 }
 

@@ -8,6 +8,7 @@
 # =============================================================================
 aws_region   = "us-east-1"
 project_name = "n8n-k8s"
+cluster_name = "rke2-cluster"
 environment  = "dev"
 owner        = "platform-team"
 
@@ -28,7 +29,7 @@ ssh_public_key = ""
 # EC2 Nodes Configuration
 # =============================================================================
 master_instance_type = "t3.medium"
-worker_instance_type = "t3.medium"
+worker_instance_type = "t3.large"
 worker_count         = 3
 master_count         = 1
 node_volume_size     = 50
@@ -36,17 +37,15 @@ node_volume_type     = "gp3"
 admin_ssh_cidr       = "0.0.0.0/0" # IMPORTANT: Restrict to your IP in production!
 
 # =============================================================================
-# S3 State + Artifacts Configuration
+# S3 Artifacts Bucket Configuration
 # =============================================================================
-state_bucket_name     = "n8n-k8s-tf-state"
-artifact_bucket_name  = "n8n-k8s-artifacts"
-state_lock_table_name = "n8n-k8s-tf-lock"
+artifact_bucket_name = "n8n-k8s-artifacts"
 
 # =============================================================================
 # Route 53 / DNS Configuration
 # =============================================================================
-domain_name         = "k8s.example.com"
-create_route53_zone = true
+# domain_name         = "example.com"       # Set to your actual domain name
+create_route53_zone = false # Disabled: k8s.example.com is reserved by AWS
 
 # =============================================================================
 # RKE2 Configuration

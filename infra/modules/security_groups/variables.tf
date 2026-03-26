@@ -8,6 +8,12 @@ variable "environment" {
   type        = string
 }
 
+variable "cluster_name" {
+  description = "Kubernetes cluster name for cluster ownership tags."
+  type        = string
+  default     = ""
+}
+
 variable "vpc_id" {
   description = "ID of the VPC where security groups will be created."
   type        = string

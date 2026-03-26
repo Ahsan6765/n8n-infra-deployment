@@ -8,6 +8,11 @@ variable "environment" {
   type        = string
 }
 
+variable "cluster_name" {
+  description = "Kubernetes cluster name for cluster ownership tags."
+  type        = string
+}
+
 variable "subnet_id" {
   description = "Subnet ID to launch the master instance in."
   type        = string

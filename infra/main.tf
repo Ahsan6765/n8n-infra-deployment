@@ -23,14 +23,12 @@ locals {
 }
 
 # -----------------------------------------------------------------------------
-# S3 – Remote state bucket + artifact bucket
+# S3 - Artifact bucket only (state bucket created manually)
 # -----------------------------------------------------------------------------
 module "s3" {
   source = "./modules/s3"
 
-  state_bucket_name    = var.state_bucket_name
   artifact_bucket_name = var.artifact_bucket_name
-  lock_table_name      = var.state_lock_table_name
   project_name         = var.project_name
   environment          = var.environment
 }
@@ -63,6 +61,7 @@ module "vpc" {
   source = "./modules/vpc"
 
   project_name        = var.project_name
+  cluster_name        = var.cluster_name
   environment         = var.environment
   vpc_cidr            = var.vpc_cidr
   public_subnet_cidrs = var.public_subnet_cidrs
@@ -76,6 +75,7 @@ module "security_groups" {
   source = "./modules/security_groups"
 
   project_name   = var.project_name
+  cluster_name   = var.cluster_name
   environment    = var.environment
   vpc_id         = module.vpc.vpc_id
   admin_ssh_cidr = var.admin_ssh_cidr
@@ -88,6 +88,7 @@ module "k8s_master" {
   source = "./modules/k8s_master"
 
   project_name         = var.project_name
+  cluster_name         = var.cluster_name
   environment          = var.environment
   subnet_id            = module.vpc.public_subnet_ids[count.index % length(module.vpc.public_subnet_ids)]
   security_group_ids   = [module.security_groups.master_sg_id]
@@ -108,6 +109,7 @@ module "k8s_workers" {
   source = "./modules/k8s_worker"
 
   project_name         = var.project_name
+  cluster_name         = var.cluster_name
   environment          = var.environment
   worker_count         = var.worker_count
   subnet_ids           = module.vpc.public_subnet_ids

@@ -39,7 +39,8 @@ resource "aws_instance" "worker" {
     delete_on_termination = true
 
     tags = {
-      Name = "${var.project_name}-${var.environment}-worker-${count.index + 1}-root"
+      Name                                        = "${var.project_name}-${var.environment}-worker-${count.index + 1}-root"
+      "kubernetes.io/cluster/${var.cluster_name}" = "owned"
     }
   }
 
@@ -53,7 +54,7 @@ resource "aws_instance" "worker" {
     Name                                        = "${var.project_name}-${var.environment}-worker-${count.index + 1}"
     Role                                        = "worker"
     WorkerIndex                                 = count.index + 1
-    "kubernetes.io/cluster/${var.project_name}" = "owned"
+    "kubernetes.io/cluster/${var.cluster_name}" = "owned"
   }
 
   lifecycle {

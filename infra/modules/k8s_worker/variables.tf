@@ -8,6 +8,11 @@ variable "environment" {
   type        = string
 }
 
+variable "cluster_name" {
+  description = "Kubernetes cluster name for cluster ownership tags."
+  type        = string
+}
+
 variable "worker_count" {
   description = "Number of worker nodes to create."
   type        = number

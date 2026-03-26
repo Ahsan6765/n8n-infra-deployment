@@ -9,7 +9,8 @@ resource "aws_security_group" "master" {
   vpc_id      = var.vpc_id
 
   tags = {
-    Name = "${var.project_name}-${var.environment}-master-sg"
+    Name                                        = "${var.project_name}-${var.environment}-master-sg"
+    "kubernetes.io/cluster/${var.cluster_name}" = "owned"
   }
 }
 
@@ -28,8 +29,19 @@ resource "aws_security_group_rule" "master_api" {
   from_port         = 6443
   to_port           = 6443
   protocol          = "tcp"
-  cidr_blocks       = ["0.0.0.0/0"]
+  cidr_blocks       = [var.admin_ssh_cidr]
   security_group_id = aws_security_group.master.id
+  description       = "Kubernetes API server from admin networks"
+}
+
+resource "aws_security_group_rule" "master_api_from_workers" {
+  type                     = "ingress"
+  from_port                = 6443
+  to_port                  = 6443
+  protocol                 = "tcp"
+  source_security_group_id = aws_security_group.worker.id
+  security_group_id        = aws_security_group.master.id
+  description              = "Kubernetes API server from worker nodes"
 }
 
 resource "aws_security_group_rule" "master_self" {
@@ -93,7 +105,8 @@ resource "aws_security_group" "worker" {
   vpc_id      = var.vpc_id
 
   tags = {
-    Name = "${var.project_name}-${var.environment}-worker-sg"
+    Name                                        = "${var.project_name}-${var.environment}-worker-sg"
+    "kubernetes.io/cluster/${var.cluster_name}" = "owned"
   }
 }
 

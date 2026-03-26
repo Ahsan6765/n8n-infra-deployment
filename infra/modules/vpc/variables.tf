@@ -8,6 +8,11 @@ variable "environment" {
   type        = string
 }
 
+variable "cluster_name" {
+  description = "Kubernetes cluster name for cluster ownership tags."
+  type        = string
+}
+
 variable "vpc_cidr" {
   description = "CIDR block for the VPC."
   type        = string

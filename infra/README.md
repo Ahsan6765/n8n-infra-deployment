@@ -30,7 +30,7 @@ n8n-infra-deployment/
 | Resource            | Details                                                             |
 | ------------------- | ------------------------------------------------------------------- |
 | **EC2 (Master)**    | 1 × Ubuntu 22.04, `t3.medium`, RKE2 server, Elastic IP              |
-| **EC2 (Workers)**   | 3 × Ubuntu 22.04, `t3.medium`, RKE2 agent                           |
+| **EC2 (Workers)**   | 3 × Ubuntu 22.04, `t3.large`, RKE2 agent                           |
 | **VPC**             | `/16` CIDR, 3 public subnets across AZs                             |
 | **Security Groups** | Master SG (API 6443, etcd, kubelet) · Worker SG (NodePort, kubelet) |
 | **IAM Role**        | EC2 node role – EC2/ELB/S3/SSM permissions                          |
@@ -101,7 +101,7 @@ kubectl get nodes
 | ---------------------- | ----------------- | ---------------------------------------- |
 | `aws_region`           | `us-east-1`       | AWS deployment region                    |
 | `master_instance_type` | `t3.medium`       | Master EC2 instance type                 |
-| `worker_instance_type` | `t3.medium`       | Worker EC2 instance type                 |
+| `worker_instance_type` | `t3.large`       | Worker EC2 instance type                 |
 | `worker_count`         | `3`               | Number of worker nodes                   |
 | `rke2_version`         | `v1.29`           | RKE2 release channel                     |
 | `domain_name`          | `k8s.example.com` | Route 53 domain                          |

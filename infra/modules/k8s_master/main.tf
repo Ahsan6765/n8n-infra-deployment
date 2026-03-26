@@ -37,7 +37,8 @@ resource "aws_instance" "master" {
     delete_on_termination = true
 
     tags = {
-      Name = "${var.project_name}-${var.environment}-master-root"
+      Name                                        = "${var.project_name}-${var.environment}-master-root"
+      "kubernetes.io/cluster/${var.cluster_name}" = "owned"
     }
   }
 
@@ -50,7 +51,7 @@ resource "aws_instance" "master" {
   tags = {
     Name                                        = "${var.project_name}-${var.environment}-master"
     Role                                        = "master"
-    "kubernetes.io/cluster/${var.project_name}" = "owned"
+    "kubernetes.io/cluster/${var.cluster_name}" = "owned"
   }
 
   lifecycle {
@@ -67,7 +68,8 @@ resource "aws_eip" "master" {
   domain   = "vpc"
 
   tags = {
-    Name = "${var.project_name}-${var.environment}-master-eip"
+    Name                                        = "${var.project_name}-${var.environment}-master-eip"
+    "kubernetes.io/cluster/${var.cluster_name}" = "owned"
   }
 }
 

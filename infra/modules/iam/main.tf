@@ -21,9 +21,8 @@ resource "aws_iam_role" "node" {
   assume_role_policy = data.aws_iam_policy_document.ec2_assume_role.json
   description        = "IAM role for K8s cluster EC2 nodes"
 
-  tags = {
-    Name = "${var.project_name}-${var.environment}-node-role"
-  }
+  # NOTE: Tags not applied to IAM role due to organizational policy restrictions.
+  # Tags are applied to other resources (instances, volumes, etc.) via resource defaults.
 }
 
 # ---- Inline Policy – Node Permissions ----
@@ -121,4 +120,8 @@ resource "aws_iam_role_policy" "node" {
 resource "aws_iam_instance_profile" "node" {
   name = "${var.project_name}-${var.environment}-node-profile"
   role = aws_iam_role.node.name
+
+  tags = {
+    Name = "${var.project_name}-${var.environment}-node-profile"
+  }
 }

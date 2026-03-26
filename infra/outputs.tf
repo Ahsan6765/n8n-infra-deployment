@@ -69,11 +69,6 @@ output "private_key_pem_path" {
 }
 
 # ---- S3 ----
-output "state_bucket_name" {
-  description = "Name of the Terraform state S3 bucket."
-  value       = module.s3.state_bucket_name
-}
-
 output "artifact_bucket_name" {
   description = "Name of the cluster artifacts S3 bucket."
   value       = module.s3.artifact_bucket_name

@@ -26,23 +26,42 @@ resource "aws_iam_role" "node" {
 }
 
 # ---- Inline Policy – Node Permissions ----
+# Consolidated from both master and worker node requirements for CCM (Cloud Controller Manager) and RKE2
 data "aws_iam_policy_document" "node_permissions" {
   # EC2 metadata & describe (required by cloud-provider and RKE2)
   statement {
     effect = "Allow"
     actions = [
+      # Describe permissions
+      "ec2:DescribeAccountAttributes",
+      "ec2:DescribeAddresses",
+      "ec2:DescribeAvailabilityZones",
       "ec2:DescribeInstances",
+      "ec2:DescribeInstanceTopology",
+      "ec2:DescribeInternetGateways",
+      "ec2:DescribeNetworkInterfaces",
       "ec2:DescribeRegions",
       "ec2:DescribeRouteTables",
       "ec2:DescribeSecurityGroups",
       "ec2:DescribeSubnets",
+      "ec2:DescribeTags",
       "ec2:DescribeVolumes",
-      "ec2:DescribeAvailabilityZones",
-      "ec2:CreateSecurityGroup",
-      "ec2:CreateRoute",
-      "ec2:AuthorizeSecurityGroupIngress",
+      "ec2:DescribeVpcs",
+      # Modify permissions
       "ec2:ModifyInstanceAttribute",
       "ec2:ModifyNetworkInterfaceAttribute",
+      # Route management
+      "ec2:CreateRoute",
+      "ec2:DeleteRoute",
+      # Security group management
+      "ec2:AuthorizeSecurityGroupIngress",
+      "ec2:CreateSecurityGroup",
+      "ec2:DeleteSecurityGroup",
+      "ec2:RevokeSecurityGroupIngress",
+      # Tagging
+      "ec2:CreateTags",
+      "ec2:DeleteTags",
+      # Volume management
       "ec2:AttachVolume",
       "ec2:CreateVolume",
       "ec2:DeleteVolume",
@@ -51,22 +70,38 @@ data "aws_iam_policy_document" "node_permissions" {
     resources = ["*"]
   }
 
-  # ELB for Kubernetes LoadBalancer services
+  # ELB for Kubernetes LoadBalancer services and CCM
   statement {
     effect = "Allow"
     actions = [
       "elasticloadbalancing:AddTags",
+      "elasticloadbalancing:ApplySecurityGroupsToLoadBalancer",
+      "elasticloadbalancing:AttachLoadBalancerToSubnets",
+      "elasticloadbalancing:ConfigureHealthCheck",
       "elasticloadbalancing:CreateListener",
       "elasticloadbalancing:CreateLoadBalancer",
+      "elasticloadbalancing:CreateLoadBalancerListeners",
       "elasticloadbalancing:CreateTargetGroup",
+      "elasticloadbalancing:DeleteListener",
       "elasticloadbalancing:DeleteLoadBalancer",
+      "elasticloadbalancing:DeleteLoadBalancerListeners",
+      "elasticloadbalancing:DeleteTargetGroup",
+      "elasticloadbalancing:DeregisterInstancesFromLoadBalancer",
       "elasticloadbalancing:DeregisterTargets",
+      "elasticloadbalancing:DescribeInstanceHealth",
       "elasticloadbalancing:DescribeListeners",
+      "elasticloadbalancing:DescribeLoadBalancerAttributes",
       "elasticloadbalancing:DescribeLoadBalancers",
+      "elasticloadbalancing:DescribeTags",
       "elasticloadbalancing:DescribeTargetGroups",
       "elasticloadbalancing:DescribeTargetHealth",
+      "elasticloadbalancing:ModifyListener",
       "elasticloadbalancing:ModifyLoadBalancerAttributes",
+      "elasticloadbalancing:ModifyTargetGroup",
+      "elasticloadbalancing:RegisterInstancesWithLoadBalancer",
       "elasticloadbalancing:RegisterTargets",
+      "elasticloadbalancing:SetLoadBalancerPoliciesForBackendServer",
+      "elasticloadbalancing:SetLoadBalancerPoliciesOfListener",
     ]
     resources = ["*"]
   }
@@ -78,6 +113,27 @@ data "aws_iam_policy_document" "node_permissions" {
       "autoscaling:DescribeAutoScalingGroups",
       "autoscaling:DescribeLaunchConfigurations",
       "autoscaling:DescribeTags",
+    ]
+    resources = ["*"]
+  }
+
+  # ECR for private image pulling
+  statement {
+    effect = "Allow"
+    actions = [
+      "ecr:GetAuthorizationToken",
+      "ecr:BatchCheckLayerAvailability",
+      "ecr:GetDownloadUrlForLayer",
+      "ecr:BatchGetImage",
+    ]
+    resources = ["*"]
+  }
+
+  # IAM service linked role creation for AWS service integrations
+  statement {
+    effect = "Allow"
+    actions = [
+      "iam:CreateServiceLinkedRole",
     ]
     resources = ["*"]
   }

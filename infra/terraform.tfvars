@@ -47,6 +47,8 @@ artifact_bucket_name = "n8n-k8s-artifacts"
 # domain_name         = "example.com"       # Set to your actual domain name
 create_route53_zone = false # Disabled: k8s.example.com is reserved by AWS
 
+# DNS Configuration
+
 # =============================================================================
 # RKE2 Configuration
 # =============================================================================

@@ -14,18 +14,14 @@ resource "aws_route53_zone" "main" {
   }
 }
 
-data "aws_route53_zone" "existing" {
-  count        = var.create_zone ? 0 : 1
-  name         = var.domain_name
-  private_zone = false
-}
-
 locals {
-  zone_id = var.create_zone ? aws_route53_zone.main[0].zone_id : data.aws_route53_zone.existing[0].zone_id
+  zone_id = var.create_zone ? aws_route53_zone.main[0].zone_id : null
 }
 
 # ---- A Record – Kubernetes API Server ----
+# Only created if a hosted zone is being managed
 resource "aws_route53_record" "api" {
+  count   = var.create_zone ? 1 : 0
   zone_id = local.zone_id
   name    = "k8s.${var.domain_name}"
   type    = "A"
@@ -34,7 +30,9 @@ resource "aws_route53_record" "api" {
 }
 
 # ---- Wildcard A Record – Cluster Services / Ingress ----
+# Only created if a hosted zone is being managed
 resource "aws_route53_record" "wildcard" {
+  count   = var.create_zone ? 1 : 0
   zone_id = local.zone_id
   name    = "*.k8s.${var.domain_name}"
   type    = "A"
@@ -43,7 +41,9 @@ resource "aws_route53_record" "wildcard" {
 }
 
 # ---- A Record – Raw domain apex (optional) ----
+# Only created if a hosted zone is being managed
 resource "aws_route53_record" "apex" {
+  count   = var.create_zone ? 1 : 0
   zone_id = local.zone_id
   name    = var.domain_name
   type    = "A"

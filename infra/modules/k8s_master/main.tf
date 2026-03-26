@@ -72,15 +72,3 @@ resource "aws_eip" "master" {
     "kubernetes.io/cluster/${var.cluster_name}" = "owned"
   }
 }
-
-# ---- SSM Parameter – RKE2 token (written by user-data, read by workers) ----
-# This data source is only used to expose the token as a module output.
-# The actual value is written by the master's user-data script.
-data "aws_ssm_parameter" "rke2_token" {
-  name            = "/${var.project_name}/${var.environment}/rke2/token"
-  with_decryption = true
-
-  # Only available after master has bootstrapped; depends_on prevents 
-  # plan-time lookup failures.
-  depends_on = [aws_instance.master]
-}

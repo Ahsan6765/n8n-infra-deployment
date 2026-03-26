@@ -14,7 +14,7 @@ output "private_ip" {
 }
 
 output "rke2_token" {
-  description = "RKE2 cluster join token (read from SSM after bootstrap)."
-  value       = data.aws_ssm_parameter.rke2_token.value
+  description = "RKE2 cluster join token. Note: Token is created by master user-data and stored in SSM. Workers retrieve it directly from SSM during their bootstrap."
+  value       = ""
   sensitive   = true
 }

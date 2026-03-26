@@ -15,10 +15,15 @@ output "name_servers" {
 
 output "api_dns_name" {
   description = "FQDN for the Kubernetes API server."
-  value       = aws_route53_record.api.fqdn
+  value       = var.create_zone ? aws_route53_record.api[0].fqdn : null
 }
 
 output "wildcard_dns_name" {
   description = "Wildcard DNS FQDN for cluster services."
-  value       = aws_route53_record.wildcard.fqdn
+  value       = var.create_zone ? aws_route53_record.wildcard[0].fqdn : null
+}
+
+output "apex_dns_name" {
+  description = "FQDN for the domain apex."
+  value       = var.create_zone ? aws_route53_record.apex[0].fqdn : null
 }

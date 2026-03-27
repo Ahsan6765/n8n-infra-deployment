@@ -37,12 +37,12 @@ EOF
 # ---- Create RKE2 config directory ----
 mkdir -p /etc/rancher/rke2
 
-# ---- Generate a random cluster token (or use a pre-shared one) ----
+# ---- Generate a pre-shared cluster token ----
 RKE2_TOKEN=$(openssl rand -hex 32)
-echo "$RKE2_TOKEN" > /var/lib/rancher/rke2/server/node-token.staging
+echo "[$(date)] Generated cluster token: $RKE2_TOKEN"
 mkdir -p /var/lib/rancher/rke2/server
 
-# ---- Write RKE2 server config ----
+# ---- Write RKE2 server config with the token ----
 cat <<EOF > /etc/rancher/rke2/config.yaml
 # RKE2 Server Configuration
 write-kubeconfig-mode: "0644"
@@ -62,16 +62,46 @@ EOF
 
 # ---- Download and install RKE2 ----
 echo "[$(date)] Downloading RKE2 installer..."
-curl -sfL https://get.rke2.io | INSTALL_RKE2_CHANNEL="${rke2_version}" sh -
+curl -sfL https://get.rke2.io | INSTALL_RKE2_CHANNEL="${rke2_version}" sh - || {
+  echo "[$(date)] ERROR: Failed to download/install RKE2"
+  exit 1
+}
 
 # ---- Enable and start RKE2 server ----
+echo "[$(date)] Starting RKE2 server..."
 systemctl enable rke2-server.service
 systemctl start rke2-server.service
 
-# ---- Wait for RKE2 to become ready ----
-echo "[$(date)] Waiting for RKE2 server to initialize..."
-timeout 300 bash -c 'until systemctl is-active rke2-server &>/dev/null; do sleep 5; done'
-sleep 30  # Additional stabilization time
+# ---- Wait for RKE2 service to be active ----
+echo "[$(date)] Waiting for RKE2 server service to become active..."
+timeout 300 bash -c 'until systemctl is-active rke2-server &>/dev/null; do sleep 5; done' || {
+  echo "[$(date)] ERROR: RKE2 server failed to start within 5 minutes"
+  journalctl -u rke2-server -n 50
+  exit 1
+}
+
+echo "[$(date)] RKE2 server service is active. Waiting for API to be ready..."
+
+# ---- Wait for RKE2 API to be responsive ----
+timeout 300 bash -c '
+  until curl -sk https://localhost:6443/healthz &>/dev/null; do
+    sleep 5
+  done
+' || {
+  echo "[$(date)] WARNING: API health check failed, but continuing..."
+}
+
+sleep 15  # Additional time for cluster stabilization
+
+# ---- Verify node-token file was created by RKE2 ----
+if [ ! -f /var/lib/rancher/rke2/server/node-token ]; then
+  echo "[$(date)] ERROR: RKE2 did not create node-token file"
+  exit 1
+fi
+
+# ---- Read the actual RKE2 token (should match what we configured) ----
+ACTUAL_TOKEN=$(cat /var/lib/rancher/rke2/server/node-token)
+echo "[$(date)] Verified token in RKE2: $ACTUAL_TOKEN"
 
 # ---- Setup kubectl for ubuntu user ----
 mkdir -p /home/ubuntu/.kube
@@ -89,12 +119,30 @@ ln -sf /var/lib/rancher/rke2/bin/kubectl /usr/local/bin/kubectl
 INSTANCE_REGION=$(curl -s http://169.254.169.254/latest/meta-data/placement/region)
 INSTANCE_ID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
 
+echo "[$(date)] Storing token in SSM Parameter Store..."
 aws ssm put-parameter \
   --name "/${project_name}/${environment}/rke2/token" \
-  --value "$RKE2_TOKEN" \
+  --value "$ACTUAL_TOKEN" \
   --type "SecureString" \
   --overwrite \
-  --region "$INSTANCE_REGION" || true
+  --region "$INSTANCE_REGION" || {
+  echo "[$(date)] ERROR: Failed to store token in SSM Parameter Store"
+  exit 1
+}
 
-echo "[$(date)] RKE2 master bootstrap complete."
-echo "[$(date)] Token stored in SSM: /${project_name}/${environment}/rke2/token"
+# ---- Verify token was stored in SSM ----
+STORED_TOKEN=$(aws ssm get-parameter \
+  --name "/${project_name}/${environment}/rke2/token" \
+  --with-decryption \
+  --query "Parameter.Value" \
+  --output text \
+  --region "$INSTANCE_REGION" 2>/dev/null || echo "")
+
+if [ "$STORED_TOKEN" != "$ACTUAL_TOKEN" ]; then
+  echo "[$(date)] ERROR: Token verification failed. SSM token doesn't match RKE2 token"
+  exit 1
+fi
+
+echo "[$(date)] ✓ Token successfully stored and verified in SSM"
+echo "[$(date)] ✓ RKE2 master bootstrap complete"
+echo "[$(date)] Master node ready. Workers can now join the cluster."

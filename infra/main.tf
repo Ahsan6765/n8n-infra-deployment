@@ -123,6 +123,12 @@ module "k8s_workers" {
   master_private_ip    = module.k8s_master[0].private_ip
   rke2_token           = module.k8s_master[0].rke2_token
   aws_region           = var.aws_region
+
+  # Explicit dependency: workers must not start until master instance is created
+  # (in addition to the implicit dependency on outputs)
+  depends_on = [
+    module.k8s_master
+  ]
 }
 
 # -----------------------------------------------------------------------------

@@ -9,6 +9,9 @@
 *.tfstate.*
 cluster-key.pem
 cluster-key*
+kubeconfig-*.yaml
+rke2-token-*.txt
+tfplan
 
 # =============================================================================
 # IDE / Editor Files

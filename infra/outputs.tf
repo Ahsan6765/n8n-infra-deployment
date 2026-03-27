@@ -56,6 +56,11 @@ output "worker_public_ips" {
   value       = module.k8s_workers.public_ips
 }
 
+output "worker_private_ips" {
+  description = "List of private IP addresses for the worker nodes (used for inter-cluster communication)."
+  value       = module.k8s_workers.private_ips
+}
+
 # ---- Key Pair ----
 output "key_pair_name" {
   description = "Name of the EC2 key pair created for SSH access."
@@ -100,8 +105,55 @@ output "ssh_master_commands" {
   ]
 }
 
+output "ssh_worker_commands" {
+  description = "SSH commands to connect to the worker node(s)."
+  value = [
+    for idx, worker_ip in module.k8s_workers.public_ips :
+    "ssh -i cluster-key.pem ubuntu@${worker_ip}"
+  ]
+}
+
 # For backward compatibility
 output "ssh_master_command" {
   description = "Ready-to-use SSH command to connect to the first master node."
   value       = length(module.k8s_master) > 0 ? "ssh -i cluster-key.pem ubuntu@${module.k8s_master[0].public_ip}" : null
+}
+
+# ---- Automated Cluster Setup ----
+output "cluster_setup_status" {
+  description = "Status of the automated RKE2 cluster setup. Check this after terraform apply completes."
+  value       = length(module.k8s_master) > 0 ? "CLUSTER_SETUP_IN_PROGRESS" : "NO_CLUSTER"
+}
+
+output "kubeconfig_path" {
+  description = "Path to the kubeconfig file retrieved from master node (created during terraform apply)."
+  value       = length(module.k8s_master) > 0 ? module.k8s_master[0].kubeconfig_path : null
+}
+
+output "cluster_token_path" {
+  description = "Path to the RKE2 cluster join token file (created during terraform apply)."
+  value       = length(module.k8s_master) > 0 ? "${path.root}/rke2-token-${var.environment}.txt" : null
+}
+
+output "kubectl_access" {
+  description = "How to access the cluster with kubectl after terraform apply completes."
+  value       = length(module.k8s_master) > 0 ? "export KUBECONFIG=${path.root}/kubeconfig-${var.environment}.yaml" : null
+}
+
+output "cluster_verification_command" {
+  description = "Command to verify cluster is ready after terraform apply completes."
+  value       = length(module.k8s_master) > 0 ? "export KUBECONFIG=${path.root}/kubeconfig-${var.environment}.yaml && kubectl get nodes" : null
+}
+
+# ---- Debug: File Retrieval Status ----
+output "token_retrieval_status" {
+  description = "Debug: Shows if RKE2 token was successfully retrieved from master."
+  value       = length(module.k8s_master) > 0 ? module.k8s_master[0].token_retrieval_status : "NO_MASTER_NODE"
+  sensitive   = false
+}
+
+output "kubeconfig_retrieval_status" {
+  description = "Debug: Shows if kubeconfig was successfully retrieved from master."
+  value       = length(module.k8s_master) > 0 ? module.k8s_master[0].kubeconfig_retrieval_status : "NO_MASTER_NODE"
+  sensitive   = false
 }

@@ -1,0 +1,77 @@
+[33mcommit 568db523f422da732ef6378e5641b6fb9e690413[m[33m ([m[1;36mHEAD[m[33m, [m[1;31morigin/main[m[33m, [m[1;32mmain[m[33m)[m
+Author: Ahsan Riaz <malikahsansultan@gmail.com>
+Date:   Fri Mar 27 11:49:20 2026 +0500
+
+     fix --- fix worker script for joining cluster
+
+[33mcommit 9cc0f4ab19d6c62b206d457074b0b512c8560aee[m
+Author: Ahsan Riaz <malikahsansultan@gmail.com>
+Date:   Fri Mar 27 09:06:46 2026 +0500
+
+    update --- rke2 script updated, and it works
+
+[33mcommit 63a4eeac50f8f6b4254f28242972b1692f3c8bac[m
+Author: Ahsan Riaz <malikahsansultan@gmail.com>
+Date:   Fri Mar 27 08:19:48 2026 +0500
+
+     udpate -- update the master and worker module for rke2 script
+
+[33mcommit 1d83dbcb6afcafa9faceb523bbdc58924a61f240[m
+Author: Ahsan Riaz <malikahsansultan@gmail.com>
+Date:   Thu Mar 26 17:06:30 2026 +0500
+
+     update  --- update the rout 53 data
+
+[33mcommit eabc2114d08f4f88929e76734b46a91269951a09[m
+Author: Ahsan Riaz <malikahsansultan@gmail.com>
+Date:   Thu Mar 26 14:55:05 2026 +0500
+
+     udpate --- update the Route 53 module
+
+[33mcommit 5b3a1522b31e0b9188b2316fbc79fa3aeccb7b13[m
+Author: Ahsan Riaz <malikahsansultan@gmail.com>
+Date:   Thu Mar 26 12:41:06 2026 +0500
+
+    update --- update infra with new tags and polices and remove s3 bucket infra for storing state file
+
+[33mcommit 38cb936c23ed7995d131a44da17216ab7a43e43c[m
+Author: Ahsan Riaz <malikahsansultan@gmail.com>
+Date:   Tue Mar 24 23:10:37 2026 +0500
+
+     update --- added a tfvars files and gitignore
+
+[33mcommit f7b73d2f2a81af38f9fa6a124537504f85211a1e[m
+Author: Ahsan Riaz <malikahsansultan@gmail.com>
+Date:   Tue Mar 24 19:56:11 2026 +0500
+
+     Update --- include the tfvar files at root level and use count loop.
+
+[33mcommit cd0884918463a9df69ad2916f5a237043b0b450b[m
+Author: Ahsan Riaz <malikahsansultan@gmail.com>
+Date:   Tue Mar 24 12:07:02 2026 +0500
+
+     fix --- Missing domain_name Parameter
+
+[33mcommit 14b27f6cea44dd0fb009b386b59969b0c8472cfd[m
+Author: Your Name <you@example.com>
+Date:   Tue Mar 24 11:17:46 2026 +0500
+
+     update dir structure
+
+[33mcommit 2ff0ff293de25ce93e4ac8c3379508c67cfe604e[m
+Author: Your Name <you@example.com>
+Date:   Tue Mar 24 11:16:09 2026 +0500
+
+     update --- create infra dir
+
+[33mcommit acfb0adc1c6fbc7553aa81b6c835cf57c96a4888[m
+Author: Your Name <you@example.com>
+Date:   Wed Mar 18 23:31:56 2026 +0500
+
+     update --- add the gitignore file
+
+[33mcommit 36651449e06f848e57feb4f140fbfc0ab32a52b7[m
+Author: Your Name <you@example.com>
+Date:   Wed Mar 18 23:27:10 2026 +0500
+
+    first commit

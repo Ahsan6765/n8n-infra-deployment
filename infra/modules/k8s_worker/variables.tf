@@ -77,3 +77,15 @@ variable "aws_region" {
   description = "AWS region."
   type        = string
 }
+
+variable "ssh_private_key_path" {
+  description = "Path to SSH private key for provisioning."
+  type        = string
+  default     = ""
+}
+
+variable "scripts_dir" {
+  description = "Path to the scripts directory containing master.sh and worker.sh."
+  type        = string
+  default     = "../../scripts"
+}

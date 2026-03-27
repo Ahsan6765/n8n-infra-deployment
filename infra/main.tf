@@ -100,6 +100,8 @@ module "k8s_master" {
   rke2_version         = var.rke2_version
   domain_name          = var.domain_name
   aws_region           = var.aws_region
+  ssh_private_key_path = var.ssh_private_key_path
+  scripts_dir          = "${path.root}/../scripts"
 }
 
 # -----------------------------------------------------------------------------
@@ -123,6 +125,8 @@ module "k8s_workers" {
   master_private_ip    = module.k8s_master[0].private_ip
   rke2_token           = module.k8s_master[0].rke2_token
   aws_region           = var.aws_region
+  ssh_private_key_path = var.ssh_private_key_path
+  scripts_dir          = "${path.root}/../scripts"
 
   # Explicit dependency: workers must not start until master instance is created
   # (in addition to the implicit dependency on outputs)

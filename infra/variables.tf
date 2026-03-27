@@ -54,6 +54,12 @@ variable "ssh_public_key" {
   sensitive   = true
 }
 
+variable "ssh_private_key_path" {
+  description = "Path to SSH private key for Terraform provisioning. If left empty and ssh_public_key is empty, uses auto-generated cluster-key.pem. If ssh_public_key is provided, must specify path to corresponding private key."
+  type        = string
+  default     = ""
+}
+
 # =============================================================================
 # EC2 Nodes
 # =============================================================================

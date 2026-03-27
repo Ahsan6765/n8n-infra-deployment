@@ -53,33 +53,40 @@ if [ "$MASTER_READY" = false ]; then
 fi
 
 # ---- Retrieve RKE2 join token from SSM Parameter Store ----
-INSTANCE_REGION=$(curl -s http://169.254.169.254/latest/meta-data/placement/region)
+# Determine region reliably (use instance identity document; fall back to AZ->region)
+INSTANCE_REGION=$(curl -s http://169.254.169.254/latest/dynamic/instance-identity/document | jq -r .region 2>/dev/null || true)
+if [ -z "$INSTANCE_REGION" ]; then
+  AZ=$(curl -s http://169.254.169.254/latest/meta-data/placement/availability-zone 2>/dev/null || true)
+  # Escape the shell parameter expansion so Terraform template rendering does not try to interpolate it
+  INSTANCE_REGION=$${AZ%[a-z]}
+fi
 
-echo "[$(date)] Waiting for master to publish token in SSM..."
+echo "[$(date)] Waiting for master to publish token in SSM (region=$${INSTANCE_REGION})..."
 TOKEN=""
-MAX_ATTEMPTS=60  # 30 minutes (60 × 30 seconds)
+MAX_ATTEMPTS=60  # 60 × 30 seconds = 30 minutes
 for i in $(seq 1 $MAX_ATTEMPTS); do
+  # Try to fetch parameter (suppress aws cli stderr to keep logs clean)
   TOKEN=$(aws ssm get-parameter \
     --name "/${project_name}/${environment}/rke2/token" \
     --with-decryption \
     --query "Parameter.Value" \
     --output text \
     --region "$INSTANCE_REGION" 2>/dev/null || true)
-  
+
   if [ -n "$TOKEN" ]; then
-    echo "[$(date)] ✓ Token retrieved successfully from SSM"
+    TOKEN_LEN=$(echo -n "$TOKEN" | wc -c)
+    echo "[$(date)] ✓ Token retrieved successfully from SSM (length: $TOKEN_LEN)"
     break
   fi
-  
-  if [ $i -eq 1 ]; then
+
+  if [ $i -le 3 ] || [ $((i % 6)) -eq 0 ]; then
     echo "[$(date)] Attempt $i/$MAX_ATTEMPTS: token not yet available, retrying..."
   fi
   sleep 30
 done
 
 if [ -z "$TOKEN" ]; then
-  echo "[$(date)] ERROR: Could not retrieve valid RKE2 token after 30 minutes"
-  echo "[$(date)] ERROR: Could not retrieve valid RKE2 token after 30 minutes"
+  echo "[$(date)] ERROR: Could not retrieve RKE2 token from SSM after $((MAX_ATTEMPTS * 30 / 60)) minutes"
   exit 1
 fi
 
@@ -127,3 +134,7 @@ echo 'export PATH=$PATH:/var/lib/rancher/rke2/bin' >> /home/ubuntu/.bashrc
 
 echo "[$(date)] ✓ RKE2 agent bootstrap complete"
 echo "[$(date)] Worker node should be joining the cluster..."
+
+# ---- Quick verification: check agent logs for join errors ----
+echo "[$(date)] Inspecting recent rke2-agent journal entries for errors..."
+journalctl -u rke2-agent -n 100 | tail -n 50 || true

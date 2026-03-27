@@ -93,6 +93,20 @@ timeout 300 bash -c '
 
 sleep 15  # Additional time for cluster stabilization
 
+# ---- Wait for RKE2 supervisor port (9345) which workers use to join ----
+echo "[$(date)] Waiting for RKE2 supervisor port 9345 to be ready..."
+timeout 300 bash -c '
+  until timeout 5 bash -c "echo > /dev/tcp/localhost/9345" 2>/dev/null; do
+    sleep 5
+  done
+' || {
+  echo "[$(date)] ERROR: RKE2 supervisor port 9345 not ready after 5 minutes"
+  journalctl -u rke2-server -n 50
+  exit 1
+}
+
+sleep 10
+
 # ---- Verify node-token file was created by RKE2 ----
 if [ ! -f /var/lib/rancher/rke2/server/node-token ]; then
   echo "[$(date)] ERROR: RKE2 did not create node-token file"
@@ -101,7 +115,21 @@ fi
 
 # ---- Read the actual RKE2 token (should match what we configured) ----
 ACTUAL_TOKEN=$(cat /var/lib/rancher/rke2/server/node-token)
-echo "[$(date)] Verified token in RKE2: $ACTUAL_TOKEN"
+
+# Validate token format and length before storing
+if [ -z "$ACTUAL_TOKEN" ] || [ $(echo -n "$ACTUAL_TOKEN" | wc -c) -lt 40 ]; then
+  echo "[$(date)] ERROR: Node-token file missing or token too short"
+  exit 1
+fi
+
+if ! echo "$ACTUAL_TOKEN" | grep -qE '^[A-Za-z0-9:+/=._-]{10,}$'; then
+  # don't expose full token in logs; print a prefix
+  echo "[$(date)] ERROR: Token format looks invalid"
+  exit 1
+fi
+
+PREFIX=$(echo "$ACTUAL_TOKEN" | cut -c1-20)
+echo "[$(date)] Verified token in RKE2 (prefix): $PREFIX..."
 
 # ---- Setup kubectl for ubuntu user ----
 mkdir -p /home/ubuntu/.kube

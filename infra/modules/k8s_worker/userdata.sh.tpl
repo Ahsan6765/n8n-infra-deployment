@@ -66,20 +66,20 @@ for i in $(seq 1 $MAX_ATTEMPTS); do
     --output text \
     --region "$INSTANCE_REGION" 2>/dev/null || true)
   
-  if [ -n "$TOKEN" ] && [ ${#TOKEN} -gt 10 ]; then
-    echo "[$(date)] ✓ Token retrieved successfully from SSM (length: ${#TOKEN})"
+  if [ -n "$TOKEN" ]; then
+    echo "[$(date)] ✓ Token retrieved successfully from SSM"
     break
   fi
   
-  if [ $i -eq 1 ] || [ $((i % 6)) -eq 0 ]; then
+  if [ $i -eq 1 ]; then
     echo "[$(date)] Attempt $i/$MAX_ATTEMPTS: token not yet available, retrying..."
   fi
   sleep 30
 done
 
-if [ -z "$TOKEN" ] || [ ${#TOKEN} -le 10 ]; then
+if [ -z "$TOKEN" ]; then
   echo "[$(date)] ERROR: Could not retrieve valid RKE2 token after 30 minutes"
-  echo "[$(date)] Last TOKEN length: ${#TOKEN}"
+  echo "[$(date)] ERROR: Could not retrieve valid RKE2 token after 30 minutes"
   exit 1
 fi
 

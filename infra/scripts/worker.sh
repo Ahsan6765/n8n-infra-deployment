@@ -418,129 +418,40 @@
 # RKE2 Worker Node Setup Script (Optimized for Terraform Provisioning)
 # =============================================================================
 
-set -euo pipefail
+#!/bin/bash
+set -e
+set -o pipefail
 
 LOG_FILE="/var/log/rke2-worker-setup.log"
-mkdir -p "$(dirname "$LOG_FILE")"
-exec > >(tee -a "$LOG_FILE") 2>&1
+exec > >(tee -a $LOG_FILE) 2>&1
 
-log() {
-  echo "[$(date +'%Y-%m-%d %H:%M:%S')] $1"
-}
+MASTER_IP=$1
+NODE_TOKEN=$2
 
-# ---- Parse arguments ----
-MASTER_IP=""
-RKE2_TOKEN=""
-ENVIRONMENT="dev"
-PROJECT_NAME="n8n"
-RKE2_VERSION="stable"
+echo "Starting RKE2 worker setup..."
+echo "Master IP: $MASTER_IP"
 
-while [[ $# -gt 0 ]]; do
-  case $1 in
-    --master-ip)
-      MASTER_IP="$2"
-      shift 2
-      ;;
-    --token)
-      RKE2_TOKEN="$2"
-      shift 2
-      ;;
-    --environment)
-      ENVIRONMENT="$2"
-      shift 2
-      ;;
-    --project)
-      PROJECT_NAME="$2"
-      shift 2
-      ;;
-    --rke2-version)
-      RKE2_VERSION="$2"
-      shift 2
-      ;;
-    *)
-      echo "Unknown option: $1"
-      exit 1
-      ;;
-  esac
-done
+# Disable swap
+sudo swapoff -a
+sudo sed -i '/ swap / s/^/#/' /etc/fstab
 
-# ---- Validate arguments ----
-if [ -z "$MASTER_IP" ] || [ -z "$RKE2_TOKEN" ]; then
-  echo "ERROR: --master-ip and --token are required"
-  exit 1
-fi
+# Install dependencies
+sudo apt-get update -y
+sudo apt-get install -y curl
 
-log "=========================================="
-log "Starting RKE2 Worker Setup"
-log "Master IP: $MASTER_IP"
-log "Environment: $ENVIRONMENT"
-log "Project: $PROJECT_NAME"
-log "=========================================="
+# Install RKE2
+curl -sfL https://get.rke2.io | sudo INSTALL_RKE2_TYPE="agent" sh -
 
-# ---- Root check ----
-if [[ $EUID -ne 0 ]]; then
-  echo "Run as root"
-  exit 1
-fi
+# Create config
+sudo mkdir -p /etc/rancher/rke2
 
-# ---- System prep ----
-export DEBIAN_FRONTEND=noninteractive
-
-log "Updating system packages..."
-apt-get update -y
-apt-get install -y curl wget jq
-
-# ---- Disable swap ----
-log "Disabling swap..."
-swapoff -a || true
-sed -i '/swap/d' /etc/fstab || true
-
-# ---- Kernel settings ----
-log "Configuring kernel modules..."
-modprobe overlay || true
-modprobe br_netfilter || true
-
-cat <<EOF >/etc/sysctl.d/99-kubernetes.conf
-net.bridge.bridge-nf-call-iptables=1
-net.bridge.bridge-nf-call-ip6tables=1
-net.ipv4.ip_forward=1
-EOF
-
-sysctl --system
-
-# ---- Install RKE2 Agent ----
-log "Installing RKE2 agent..."
-curl -sfL https://get.rke2.io | INSTALL_RKE2_TYPE="agent" INSTALL_RKE2_CHANNEL="$RKE2_VERSION" sh -
-
-# ---- Configure RKE2 ----
-log "Creating RKE2 config..."
-mkdir -p /etc/rancher/rke2
-
-cat <<EOF >/etc/rancher/rke2/config.yaml
+cat <<EOF | sudo tee /etc/rancher/rke2/config.yaml
 server: https://$MASTER_IP:9345
-token: "$RKE2_TOKEN"
-node-label:
-  - "node-role=worker"
-  - "environment=$ENVIRONMENT"
-  - "project=$PROJECT_NAME"
+token: $NODE_TOKEN
 EOF
 
-# ---- Start RKE2 Agent ----
-log "Starting RKE2 agent..."
-systemctl daemon-reexec
-systemctl enable rke2-agent
-systemctl start rke2-agent
+# Enable and start agent
+sudo systemctl enable rke2-agent
+sudo systemctl start rke2-agent
 
-# ---- Add RKE2 binaries to PATH ----
-if ! grep -q "/var/lib/rancher/rke2/bin" /home/ubuntu/.bashrc; then
-cat <<'EOF' >> /home/ubuntu/.bashrc
-
-export PATH=$PATH:/var/lib/rancher/rke2/bin
-EOF
-fi
-
-log "=========================================="
-log "RKE2 Worker Setup Completed"
-log "Worker will join cluster automatically"
-log "Check on master: kubectl get nodes"
-log "=========================================="
+echo "RKE2 worker setup completed"

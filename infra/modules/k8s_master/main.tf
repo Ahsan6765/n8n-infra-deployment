@@ -383,28 +383,30 @@ resource "null_resource" "master_provisioner_execute" {
 }
 
 # =============================================================================
-# Retrieve RKE2 Token
+# Retrieve RKE2 Token (RETRY LOOP FIXED)
 # =============================================================================
 resource "null_resource" "master_provisioner_token" {
   provisioner "local-exec" {
     command = <<-EOT
-      echo "Retrieving RKE2 token..."
       PRIVATE_KEY='${var.ssh_private_key_path != "" ? var.ssh_private_key_path : "${path.root}/cluster-key.pem"}'
       MASTER_IP='${aws_eip.master.public_ip}'
       TOKEN_FILE='${path.root}/rke2-token-${var.environment}.txt'
+      MAX_RETRIES=30
+      RETRY_DELAY=10
 
-      for i in {1..30}; do
-        TOKEN_CONTENT=$(ssh -o StrictHostKeyChecking=no -i "$PRIVATE_KEY" ubuntu@$MASTER_IP "cat /tmp/rke2-token.txt 2>/dev/null" || echo "")
-        if [ -n "$TOKEN_CONTENT" ]; then
+      echo "[INFO] Retrieving RKE2 token..."
+      for i in $(seq 1 $MAX_RETRIES); do
+        TOKEN_CONTENT=$(ssh -o StrictHostKeyChecking=no -i "$PRIVATE_KEY" ubuntu@$MASTER_IP "sudo cat /var/lib/rancher/rke2/server/node-token 2>/dev/null || cat /tmp/rke2-token.txt 2>/dev/null" || echo "")
+        if [ -n "$TOKEN_CONTENT" ] && [ $(echo -n "$TOKEN_CONTENT" | wc -c) -gt 40 ]; then
           echo "$TOKEN_CONTENT" > "$TOKEN_FILE"
-          echo "Token saved locally."
+          echo "[SUCCESS] Token saved locally."
           exit 0
         fi
-        echo "Waiting for token..."
-        sleep 10
+        echo "[INFO] Attempt $i/$MAX_RETRIES: Token not ready yet, retrying in $RETRY_DELAY seconds..."
+        sleep $RETRY_DELAY
       done
 
-      echo "Failed to retrieve token"
+      echo "[ERROR] Failed to retrieve RKE2 token after $MAX_RETRIES attempts."
       exit 1
     EOT
   }
@@ -413,23 +415,43 @@ resource "null_resource" "master_provisioner_token" {
 }
 
 # =============================================================================
-# Retrieve kubeconfig
+# Retrieve kubeconfig (RETRY LOOP FIXED)
 # =============================================================================
 resource "null_resource" "master_provisioner_kubeconfig" {
   provisioner "local-exec" {
     command = <<-EOT
-      echo "Retrieving kubeconfig..."
       PRIVATE_KEY='${var.ssh_private_key_path != "" ? var.ssh_private_key_path : "${path.root}/cluster-key.pem"}'
       MASTER_IP='${aws_eip.master.public_ip}'
       KUBECONFIG_FILE='${path.root}/kubeconfig-${var.environment}.yaml'
+      MAX_RETRIES=60
+      RETRY_DELAY=10
 
-      for i in {1..20}; do
-        scp -o StrictHostKeyChecking=no -i "$PRIVATE_KEY" ubuntu@$MASTER_IP:~/.kube/config "$KUBECONFIG_FILE" && exit 0
-        echo "Waiting for kubeconfig..."
-        sleep 10
+      echo "[INFO] Retrieving kubeconfig from $MASTER_IP (max $((MAX_RETRIES * RETRY_DELAY / 60)) min)..."
+      for i in $(seq 1 $MAX_RETRIES); do
+        # Attempt to copy /tmp/kubeconfig.yaml from master (written by master.sh)
+        # Suppress SSH exit code – file may not exist yet on early attempts
+        ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
+            -i "$PRIVATE_KEY" ubuntu@$MASTER_IP \
+            "sudo test -f /tmp/kubeconfig.yaml" 2>/dev/null || true
+
+        # Try SCP – only proceed if file arrived on master
+        if scp -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
+               -i "$PRIVATE_KEY" ubuntu@$MASTER_IP:/tmp/kubeconfig.yaml \
+               "$KUBECONFIG_FILE" 2>/dev/null; then
+          # Validate the file has real content
+          FILE_SIZE=$(wc -c < "$KUBECONFIG_FILE" 2>/dev/null || echo 0)
+          if [ "$FILE_SIZE" -gt 100 ]; then
+            sed -i "s/127.0.0.1/${aws_eip.master.public_ip}/g" "$KUBECONFIG_FILE"
+            echo "[SUCCESS] Kubeconfig saved ($FILE_SIZE bytes). IP patched."
+            exit 0
+          fi
+        fi
+
+        echo "[INFO] Attempt $i/$MAX_RETRIES: kubeconfig not ready, retrying in $RETRY_DELAY s..."
+        sleep $RETRY_DELAY
       done
 
-      echo "Failed to retrieve kubeconfig"
+      echo "[ERROR] Failed to retrieve kubeconfig after $MAX_RETRIES attempts."
       exit 1
     EOT
   }

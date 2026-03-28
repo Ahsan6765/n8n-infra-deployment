@@ -57,9 +57,12 @@ resource "null_resource" "worker_provisioner" {
 
   provisioner "remote-exec" {
     inline = [
-      "echo 'Waiting for cloud-init to complete...'",
+      "echo '[$(date)] Waiting for cloud-init to complete...'",
       "cloud-init status --wait",
-      "echo 'System ready for RKE2 worker setup'"
+      "echo '[$(date)] Cloud-init completed'",
+      "echo '[$(date)] System ready for RKE2 worker setup'",
+      "echo '[$(date)] Worker instance public IP: ${aws_instance.worker[count.index].public_ip}'",
+      "echo '[$(date)] Worker instance private IP: ${aws_instance.worker[count.index].private_ip}'"
     ]
 
     connection {
@@ -86,8 +89,47 @@ resource "null_resource" "worker_provisioner" {
 
   provisioner "remote-exec" {
     inline = [
+      "echo '=========================================='",
+      "echo 'Worker Setup Starting'",
+      "echo 'Master IP: ${var.master_private_ip}'",
+      "echo 'Environment: ${var.environment}'",
+      "echo 'Project: ${var.project_name}'",
+      "echo 'RKE2 Version: ${var.rke2_version}'",
+      "echo 'Token Length: ${length(var.rke2_token)}'",
+      "echo '=========================================='",
+      "",
+      "# Validate token is not empty",
+      "if [ -z '${var.rke2_token}' ]; then",
+      "  echo 'ERROR: RKE2 token is empty. Master may not have completed setup.'",
+      "  echo 'Check master provisioner output and SSM Parameter Store for token.'",
+      "  exit 1",
+      "fi",
+      "",
+      "# Run worker setup script with output logging",
       "chmod +x /tmp/worker.sh",
-      "sudo /tmp/worker.sh --master-ip '${var.master_private_ip}' --token '${var.rke2_token}' --environment '${var.environment}' --project '${var.project_name}' --rke2-version '${var.rke2_version}'"
+      "echo 'Executing worker.sh with sudo...'",
+      "sudo bash -c 'set -o pipefail; /tmp/worker.sh --master-ip \"${var.master_private_ip}\" --token \"${var.rke2_token}\" --environment \"${var.environment}\" --project \"${var.project_name}\" --rke2-version \"${var.rke2_version}\" 2>&1 | tee -a /home/ubuntu/worker-setup.log'",
+      "WORKER_EXIT_CODE=$${PIPESTATUS[0]}",
+      "",
+      "echo ''",
+      "echo '=========================================='",
+      "if [ $WORKER_EXIT_CODE -eq 0 ]; then",
+      "  echo 'Worker setup completed successfully'",
+      "else",
+      "  echo 'Worker setup FAILED with exit code: '$WORKER_EXIT_CODE",
+      "  echo 'Retrieving worker logs for debugging...'",
+      "  if [ -f '/var/log/rke2-worker-setup.log' ]; then",
+      "    echo 'Last 50 lines of rke2-worker-setup.log:'",
+      "    tail -50 /var/log/rke2-worker-setup.log || true",
+      "  fi",
+      "  if [ -f '/home/ubuntu/worker-setup.log' ]; then",
+      "    echo 'Last 50 lines of worker-setup.log:'",
+      "    tail -50 /home/ubuntu/worker-setup.log || true",
+      "  fi",
+      "fi",
+      "echo '=========================================='",
+      "",
+      "exit $WORKER_EXIT_CODE"
     ]
 
     connection {

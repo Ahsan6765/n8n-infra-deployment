@@ -1,23 +1,142 @@
-# # =============================================================================
-# # K8s Worker Module – EC2 Instances (RKE2 Agents)
-# # =============================================================================
+# # # =============================================================================
+# # # K8s Worker Module – EC2 Instances (RKE2 Agents)
+# # # =============================================================================
 
-# ---- Latest Ubuntu 22.04 LTS AMI ----
+# # ---- Latest Ubuntu 22.04 LTS AMI ----
+# data "aws_ssm_parameter" "ubuntu_ami" {
+#   name = "/aws/service/canonical/ubuntu/server/22.04/stable/current/amd64/hvm/ebs-gp2/ami-id"
+# }
+
+# # ---- Worker EC2 Instances ----
+# # Note: RKE2 setup is handled via provisioners that execute worker.sh scripts
+# # Instances wait for master to be ready before attempting to join
+# resource "aws_instance" "worker" {
+#   count                  = var.worker_count
+#   ami                    = data.aws_ssm_parameter.ubuntu_ami.value
+#   instance_type          = var.instance_type
+#   subnet_id              = var.subnet_ids[count.index % length(var.subnet_ids)]
+#   vpc_security_group_ids = var.security_group_ids
+#   key_name               = var.key_name
+#   iam_instance_profile   = var.iam_instance_profile
+
+#   root_block_device {
+#     volume_size           = var.volume_size
+#     volume_type           = var.volume_type
+#     encrypted             = true
+#     delete_on_termination = true
+
+#     tags = {
+#       Name                                        = "${var.project_name}-${var.environment}-worker-${count.index + 1}-root"
+#       "kubernetes.io/cluster/${var.cluster_name}" = "owned"
+#     }
+#   }
+
+#   metadata_options {
+#     http_endpoint               = "enabled"
+#     http_tokens                 = "optional"
+#     http_put_response_hop_limit = 2
+#   }
+
+#   tags = {
+#     Name                                        = "${var.project_name}-${var.environment}-worker-${count.index + 1}"
+#     Role                                        = "worker"
+#     WorkerIndex                                 = count.index + 1
+#     "kubernetes.io/cluster/${var.cluster_name}" = "owned"
+#   }
+
+#   lifecycle {
+#     ignore_changes = [
+#       ami,
+#     ]
+#   }
+# }
+
+# # ---- Worker Provisioners (separate resources to avoid dependency issues) ----
+# resource "null_resource" "worker_provisioner" {
+#   count = var.worker_count
+
+#   provisioner "remote-exec" {
+#     inline = [
+#       "echo '[$(date)] Waiting for cloud-init to complete...'",
+#       "cloud-init status --wait",
+#       "echo '[$(date)] Cloud-init completed'",
+#       "echo '[$(date)] System ready for RKE2 worker setup'",
+#       "echo '[$(date)] Worker instance public IP: ${aws_instance.worker[count.index].public_ip}'",
+#       "echo '[$(date)] Worker instance private IP: ${aws_instance.worker[count.index].private_ip}'"
+#     ]
+
+#     connection {
+#       type        = "ssh"
+#       user        = "ubuntu"
+#       private_key = file(var.ssh_private_key_path != "" ? var.ssh_private_key_path : "${path.root}/cluster-key.pem")
+#       host        = aws_instance.worker[count.index].public_ip
+#       timeout     = "5m"
+#     }
+#   }
+
+#   provisioner "file" {
+#     source      = "${var.scripts_dir}/worker.sh"
+#     destination = "/tmp/worker.sh"
+
+#     connection {
+#       type        = "ssh"
+#       user        = "ubuntu"
+#       private_key = file(var.ssh_private_key_path != "" ? var.ssh_private_key_path : "${path.root}/cluster-key.pem")
+#       host        = aws_instance.worker[count.index].public_ip
+#       timeout     = "5m"
+#     }
+#   }
+
+#   provisioner "remote-exec" {
+#     inline = [
+#       "echo '=========================================='",
+#       "echo 'Worker Setup Starting'",
+#       "echo 'Master IP: ${var.master_private_ip}'",
+#       "echo 'Token Length: ${length(var.rke2_token)}'",
+#       "echo '=========================================='",
+#       "test -n '${var.rke2_token}' || (echo 'ERROR: RKE2 token is empty' && exit 1)",
+#       "chmod +x /tmp/worker.sh",
+#       "echo 'Starting RKE2 worker provisioning...'",
+#       "sudo /tmp/worker.sh --master-ip '${var.master_private_ip}' --token '${var.rke2_token}' --environment '${var.environment}' --project '${var.project_name}' --rke2-version '${var.rke2_version}' 2>&1 | tee -a /home/ubuntu/worker-setup.log",
+#       "echo '=========================================='",
+#       "echo 'Worker provisioning script completed'",
+#       "echo '=========================================='",
+#       "test -f /var/log/rke2-worker-setup.log && tail -30 /var/log/rke2-worker-setup.log || echo 'Log file not yet available'"
+#     ]
+
+#     connection {
+#       type        = "ssh"
+#       user        = "ubuntu"
+#       private_key = file(var.ssh_private_key_path != "" ? var.ssh_private_key_path : "${path.root}/cluster-key.pem")
+#       host        = aws_instance.worker[count.index].public_ip
+#       timeout     = "30m"
+#     }
+#   }
+
+#   depends_on = [aws_instance.worker]
+# }
+
+# =============================================================================
+# =============================================================================
+
+
+# =============================================================================
+# K8s Worker Module – EC2 Instances (RKE2 Agents)
+# Optimized remote-exec for worker.sh provisioning
+# =============================================================================
+
 data "aws_ssm_parameter" "ubuntu_ami" {
   name = "/aws/service/canonical/ubuntu/server/22.04/stable/current/amd64/hvm/ebs-gp2/ami-id"
 }
 
-# ---- Worker EC2 Instances ----
-# Note: RKE2 setup is handled via provisioners that execute worker.sh scripts
-# Instances wait for master to be ready before attempting to join
 resource "aws_instance" "worker" {
-  count              = var.worker_count
-  ami                = data.aws_ssm_parameter.ubuntu_ami.value
-  instance_type      = var.instance_type
-  subnet_id          = var.subnet_ids[count.index % length(var.subnet_ids)]
+  count                  = var.worker_count
+  ami                    = data.aws_ssm_parameter.ubuntu_ami.value
+  instance_type          = var.instance_type
+  subnet_id              = var.subnet_ids[count.index % length(var.subnet_ids)]
   vpc_security_group_ids = var.security_group_ids
-  key_name           = var.key_name
-  iam_instance_profile = var.iam_instance_profile
+  key_name               = var.key_name
+  iam_instance_profile   = var.iam_instance_profile
 
   root_block_device {
     volume_size           = var.volume_size
@@ -51,29 +170,11 @@ resource "aws_instance" "worker" {
   }
 }
 
-# ---- Worker Provisioners (separate resources to avoid dependency issues) ----
+# ---- Worker Provisioners ----
 resource "null_resource" "worker_provisioner" {
   count = var.worker_count
 
-  provisioner "remote-exec" {
-    inline = [
-      "echo '[$(date)] Waiting for cloud-init to complete...'",
-      "cloud-init status --wait",
-      "echo '[$(date)] Cloud-init completed'",
-      "echo '[$(date)] System ready for RKE2 worker setup'",
-      "echo '[$(date)] Worker instance public IP: ${aws_instance.worker[count.index].public_ip}'",
-      "echo '[$(date)] Worker instance private IP: ${aws_instance.worker[count.index].private_ip}'"
-    ]
-
-    connection {
-      type        = "ssh"
-      user        = "ubuntu"
-      private_key = file(var.ssh_private_key_path != "" ? var.ssh_private_key_path : "${path.root}/cluster-key.pem")
-      host        = aws_instance.worker[count.index].public_ip
-      timeout     = "5m"
-    }
-  }
-
+  # ---- Upload worker.sh first ----
   provisioner "file" {
     source      = "${var.scripts_dir}/worker.sh"
     destination = "/tmp/worker.sh"
@@ -83,53 +184,19 @@ resource "null_resource" "worker_provisioner" {
       user        = "ubuntu"
       private_key = file(var.ssh_private_key_path != "" ? var.ssh_private_key_path : "${path.root}/cluster-key.pem")
       host        = aws_instance.worker[count.index].public_ip
-      timeout     = "5m"
+      timeout     = "10m"
     }
   }
 
+  # ---- Run the worker.sh script ----
   provisioner "remote-exec" {
     inline = [
-      "echo '=========================================='",
-      "echo 'Worker Setup Starting'",
-      "echo 'Master IP: ${var.master_private_ip}'",
-      "echo 'Environment: ${var.environment}'",
-      "echo 'Project: ${var.project_name}'",
-      "echo 'RKE2 Version: ${var.rke2_version}'",
-      "echo 'Token Length: ${length(var.rke2_token)}'",
-      "echo '=========================================='",
-      "",
-      "# Validate token is not empty",
-      "if [ -z '${var.rke2_token}' ]; then",
-      "  echo 'ERROR: RKE2 token is empty. Master may not have completed setup.'",
-      "  echo 'Check master provisioner output and SSM Parameter Store for token.'",
-      "  exit 1",
-      "fi",
-      "",
-      "# Run worker setup script with output logging",
+      "test -s /tmp/worker.sh || (echo 'ERROR: /tmp/worker.sh is empty' && exit 1)",
       "chmod +x /tmp/worker.sh",
-      "echo 'Executing worker.sh with sudo...'",
-      "sudo bash -c 'set -o pipefail; /tmp/worker.sh --master-ip \"${var.master_private_ip}\" --token \"${var.rke2_token}\" --environment \"${var.environment}\" --project \"${var.project_name}\" --rke2-version \"${var.rke2_version}\" 2>&1 | tee -a /home/ubuntu/worker-setup.log'",
-      "WORKER_EXIT_CODE=$${PIPESTATUS[0]}",
-      "",
-      "echo ''",
-      "echo '=========================================='",
-      "if [ $WORKER_EXIT_CODE -eq 0 ]; then",
-      "  echo 'Worker setup completed successfully'",
-      "else",
-      "  echo 'Worker setup FAILED with exit code: '$WORKER_EXIT_CODE",
-      "  echo 'Retrieving worker logs for debugging...'",
-      "  if [ -f '/var/log/rke2-worker-setup.log' ]; then",
-      "    echo 'Last 50 lines of rke2-worker-setup.log:'",
-      "    tail -50 /var/log/rke2-worker-setup.log || true",
-      "  fi",
-      "  if [ -f '/home/ubuntu/worker-setup.log' ]; then",
-      "    echo 'Last 50 lines of worker-setup.log:'",
-      "    tail -50 /home/ubuntu/worker-setup.log || true",
-      "  fi",
-      "fi",
-      "echo '=========================================='",
-      "",
-      "exit $WORKER_EXIT_CODE"
+      "echo 'Starting RKE2 worker provisioning...'",
+      "sudo /tmp/worker.sh --master-ip '${var.master_private_ip}' --token '${var.rke2_token}' --environment '${var.environment}' --project '${var.project_name}' --rke2-version '${var.rke2_version}' 2>&1 | tee -a /home/ubuntu/worker-setup.log",
+      "echo 'Worker provisioning completed'",
+      "test -f /var/log/rke2-worker-setup.log && tail -30 /var/log/rke2-worker-setup.log || echo 'Log file not yet available'"
     ]
 
     connection {
@@ -137,7 +204,7 @@ resource "null_resource" "worker_provisioner" {
       user        = "ubuntu"
       private_key = file(var.ssh_private_key_path != "" ? var.ssh_private_key_path : "${path.root}/cluster-key.pem")
       host        = aws_instance.worker[count.index].public_ip
-      timeout     = "30m"
+      timeout     = "40m" # Increased timeout for long-running provisioning
     }
   }
 

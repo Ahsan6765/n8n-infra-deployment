@@ -32,9 +32,9 @@ resource "aws_eip" "master" {
 
 # ---- Master EC2 Instance ----
 resource "aws_instance" "master" {
-  ami               = data.aws_ssm_parameter.ubuntu_ami.value
-  instance_type     = var.instance_type
-  key_name          = var.key_name
+  ami                  = data.aws_ssm_parameter.ubuntu_ami.value
+  instance_type        = var.instance_type
+  key_name             = var.key_name
   iam_instance_profile = var.iam_instance_profile
 
   network_interface {

@@ -1,59 +1,42 @@
-module.k8s_workers.null_resource.worker_provisioner[0]: Still creating... [00m40s elapsed]
-module.k8s_workers.null_resource.worker_provisioner[1]: Still creating... [00m40s elapsed]
-╷
-│ Error: remote-exec provisioner error
-│ 
-│   with module.k8s_workers.null_resource.worker_provisioner[0],
-│   on modules/k8s_worker/main.tf line 87, in resource "null_resource" "worker_provisioner":
-│   87:   provisioner "remote-exec" 
-│ 
-│ error executing "/tmp/terraform_1155332936.sh": Process exited with status 1
-╵
-╷
-│ Error: remote-exec provisioner error
-│ 
-│   with module.k8s_workers.null_resource.worker_provisioner[2],
-│   on modules/k8s_worker/main.tf line 87, in resource "null_resource" "worker_provisioner":
-│   87:   provisioner "remote-exec" 
-│ 
-│ error executing "/tmp/terraform_1248498054.sh": Process exited with status 1
-╵
-╷
-│ Error: remote-exec provisioner error
-│ 
-│   with module.k8s_workers.null_resource.worker_provisioner[1],
-│   on modules/k8s_worker/main.tf line 87, in resource "null_resource" "worker_provisioner":
-│   87:   provisioner "remote-exec" {
-│ 
-│ error executing "/tmp/terraform_1367233170.sh": Process exited with status 1
-╵
+module.k8s_workers.null_resource.worker_provisioner[0]: Still creating... [30m50s elapsed]
+module.k8s_workers.null_resource.worker_provisioner[2]: Still creating... [31m00s elapsed]
+module.k8s_workers.null_resource.worker_provisioner[1]: Still creating... [31m00s elapsed]
+module.k8s_workers.null_resource.worker_provisioner[0]: Still creating... [31m00s elapsed]
+^C
+Interrupt received.
+Please wait for Terraform to exit or data loss may occur.
+Gracefully shutting down...
 
-these above errors occurs, 
-
-here is my module/k8s_worker/main.tf file given below:
-======================================================================
-
-module.k8s_workers.null_resource.worker_provisioner[0]: Provisioning with 'file'...
-module.k8s_workers.null_resource.worker_provisioner[2]: Provisioning with 'remote-exec'...
-module.k8s_workers.null_resource.worker_provisioner[1]: Provisioning with 'remote-exec'...
-module.k8s_workers.null_resource.worker_provisioner[0]: Provisioning with 'remote-exec'...
+Stopping operation...
 ╷
-│ Error: remote-exec provisioner error
+│ Error: execution halted
 │ 
-│   with module.k8s_workers.null_resource.worker_provisioner[1],
-│   on modules/k8s_worker/main.tf line 90, in resource "null_resource" "worker_provisioner":
-│   90:   provisioner "remote-exec" {
 │ 
-│ invalid empty string in 'scripts'
 ╵
 ╷
-│ Error: remote-exec provisioner error
+│ Error: execution halted
 │ 
-│   with module.k8s_workers.null_resource.worker_provisioner[0],
-│   on modules/k8s_worker/main.tf line 90, in resource "null_resource" "worker_provisioner":
-│   90:   provisioner "remote-exec" {
 │ 
-│ invalid empty string in 'scripts'
+╵
+╷
+│ Error: execution halted
+│ 
+│ 
+╵
+╷
+│ Error: execution halted
+│ 
+│ 
+╵
+╷
+│ Error: execution halted
+│ 
+│ 
+╵
+╷
+│ Error: execution halted
+│ 
+│ 
 ╵
 ╷
 │ Error: remote-exec provisioner error
@@ -62,6 +45,24 @@ module.k8s_workers.null_resource.worker_provisioner[0]: Provisioning with 'remot
 │   on modules/k8s_worker/main.tf line 90, in resource "null_resource" "worker_provisioner":
 │   90:   provisioner "remote-exec" {
 │ 
-│ invalid empty string in 'scripts'
+│ error executing "/tmp/terraform_97096769.sh": wait: remote command exited without exit status or exit signal
+╵
+╷
+│ Error: remote-exec provisioner error
+│ 
+│   with module.k8s_workers.null_resource.worker_provisioner[1],
+│   on modules/k8s_worker/main.tf line 90, in resource "null_resource" "worker_provisioner":
+│   90:   provisioner "remote-exec" {
+│ 
+│ error executing "/tmp/terraform_2080218021.sh": wait: remote command exited without exit status or exit signal
+╵
+╷
+│ Error: remote-exec provisioner error
+│ 
+│   with module.k8s_workers.null_resource.worker_provisioner[0],
+│   on modules/k8s_worker/main.tf line 90, in resource "null_resource" "worker_provisioner":
+│   90:   provisioner "remote-exec" {
+│ 
+│ error executing "/tmp/terraform_566930899.sh": wait: remote command exited without exit status or exit signal
 ╵
 Releasing state lock. This may take a few moments...

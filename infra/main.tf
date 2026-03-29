@@ -19,11 +19,23 @@ resource "local_sensitive_file" "private_key" {
 }
 
 # -----------------------------------------------------------------------------
-# Generate RKE2 cluster join token (production-grade, cryptographically secure)
+# Generate RKE2 cluster join token
+#
+# FIX 1: special = false — special characters like ?, {, }, [, ], (, ), =, >
+# corrupt the token when Terraform interpolates it into shell args and YAML.
+# Even single-quoted shell args do not fully protect all special chars.
+#
+# FIX 2: Removed the "K10" prefix from the local.
+# "K10..." is RKE2's internal format for full bootstrap tokens
+# (K10<64-char-hex-hash>::<username>:<password>). When RKE2 sees a token
+# starting with K10 but not matching that full format, it throws:
+# "failed to normalize server token; must be in format K10<CA-HASH>::..."
+# and crashes immediately. A plain alphanumeric string is the correct
+# format for a user-supplied password token.
 # -----------------------------------------------------------------------------
 resource "random_password" "rke2_token" {
   length  = 64
-  special = true
+  special = false
   upper   = true
   lower   = true
   numeric = true
@@ -31,8 +43,9 @@ resource "random_password" "rke2_token" {
 
 locals {
   effective_public_key = var.ssh_public_key != "" ? var.ssh_public_key : tls_private_key.cluster[0].public_key_openssh
-  # RKE2 tokens must start with "K10" prefix for compatibility
-  rke2_token = "K10${random_password.rke2_token.result}"
+
+  # Plain alphanumeric string — safe in YAML, shell args, and RKE2 config.
+  rke2_token = random_password.rke2_token.result
 }
 
 # -----------------------------------------------------------------------------
@@ -94,8 +107,9 @@ module "security_groups" {
   admin_ssh_cidr = var.admin_ssh_cidr
 }
 
+# -----------------------------------------------------------------------------
 # K8s Master Node(s) – RKE2 server (scalable via master_count variable)
-# =============================================================================
+# -----------------------------------------------------------------------------
 module "k8s_master" {
   count  = var.master_count
   source = "./modules/k8s_master"
@@ -120,7 +134,7 @@ module "k8s_master" {
 
 # -----------------------------------------------------------------------------
 # K8s Worker Nodes – RKE2 agents (scalable via worker_count variable)
-# =============================================================================
+# -----------------------------------------------------------------------------
 module "k8s_workers" {
   source = "./modules/k8s_worker"
 

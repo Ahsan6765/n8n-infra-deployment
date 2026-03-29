@@ -13,31 +13,7 @@ output "private_ip" {
   value       = aws_instance.master.private_ip
 }
 
-output "rke2_token" {
-  description = "RKE2 cluster join token retrieved from master node."
-  value       = try(file("${path.root}/rke2-token-${var.environment}.txt"), "")
-  sensitive   = true
-}
-
 output "kubeconfig_path" {
   description = "Path to the kubeconfig file retrieved from master node."
   value       = "${path.root}/kubeconfig-${var.environment}.yaml"
-}
-
-output "token_retrieval_status" {
-  description = "Debug output showing if token file was successfully retrieved."
-  value       = fileexists("${path.root}/rke2-token-${var.environment}.txt") ? "[SUCCESS] Token file exists" : "[FAILED] Token file MISSING - token retrieval failed"
-  sensitive   = false
-}
-
-output "kubeconfig_retrieval_status" {
-  description = "Debug output showing if kubeconfig was successfully retrieved."
-  value       = fileexists("${path.root}/kubeconfig-${var.environment}.yaml") ? "[SUCCESS] Kubeconfig file exists" : "[FAILED] Kubeconfig file MISSING - retrieval failed"
-  sensitive   = false
-}
-
-# Expose provisioner null_resource so root module can depends_on it for ordering
-output "provisioner_token_id" {
-  description = "ID of the token provisioner null_resource – used for cross-module dependency ordering."
-  value       = null_resource.master_provisioner_token.id
 }

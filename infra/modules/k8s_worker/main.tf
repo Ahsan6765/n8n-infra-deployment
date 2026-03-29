@@ -6,6 +6,9 @@ data "aws_ssm_parameter" "ubuntu_ami" {
   name = "/aws/service/canonical/ubuntu/server/22.04/stable/current/amd64/hvm/ebs-gp2/ami-id"
 }
 
+# -----------------------------------------------------------------------------
+# Worker EC2 Instances
+# -----------------------------------------------------------------------------
 resource "aws_instance" "worker" {
   count                  = var.worker_count
   ami                    = data.aws_ssm_parameter.ubuntu_ami.value
@@ -29,7 +32,7 @@ resource "aws_instance" "worker" {
 
   metadata_options {
     http_endpoint               = "enabled"
-    http_tokens                 = "optional"
+    http_tokens                 = "required"
     http_put_response_hop_limit = 2
   }
 
@@ -41,61 +44,97 @@ resource "aws_instance" "worker" {
   }
 
   lifecycle {
-    ignore_changes = [
-      ami,
-    ]
+    ignore_changes = [ami]
   }
 }
 
 # =============================================================================
-# Worker Setup - Using local-exec for better reliability
+# Provisioning: Copy and execute worker setup script
 # =============================================================================
-resource "null_resource" "worker_provisioner" {
+
+# -----------------------------------------------------------------------------
+# 1. Wait for cloud-init to complete
+# -----------------------------------------------------------------------------
+resource "null_resource" "wait_for_cloud_init" {
   count = var.worker_count
 
   triggers = {
-    worker_id  = aws_instance.worker[count.index].id
-    token_hash = md5(var.rke2_token)
-    master_ip  = var.master_private_ip
+    instance_id = aws_instance.worker[count.index].id
   }
 
-  # Copy script via local SCP
-  provisioner "local-exec" {
-    command = <<-EOT
-      echo "[worker-${count.index + 1}] Preparing to provision worker..."
-      
-      PRIVATE_KEY="${var.ssh_private_key_path != "" ? var.ssh_private_key_path : "${path.root}/cluster-key.pem"}"
-      WORKER_IP="${aws_instance.worker[count.index].public_ip}"
-      MASTER_IP="${var.master_private_ip}"
-      TOKEN="${var.rke2_token}"
-      
-      echo "[worker-${count.index + 1}] Waiting for SSH to be available..."
-      for i in $(seq 1 30); do
-        if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 -i "$PRIVATE_KEY" ubuntu@$WORKER_IP "echo 'SSH ready'" >/dev/null 2>&1; then
-          echo "[worker-${count.index + 1}] SSH is available"
-          break
-        fi
-        echo "[worker-${count.index + 1}] Waiting for SSH... ($i/30)"
-        sleep 10
-      done
-      
-      echo "[worker-${count.index + 1}] Copying worker.sh..."
-      scp -o StrictHostKeyChecking=no -i "$PRIVATE_KEY" ${var.scripts_dir}/worker.sh ubuntu@$WORKER_IP:/tmp/worker.sh
-      
-      echo "[worker-${count.index + 1}] Executing worker.sh with timeout..."
-      # Use timeout command to prevent hanging forever
-      ssh -o StrictHostKeyChecking=no -o ServerAliveInterval=30 -o ServerAliveCountMax=3 \
-          -i "$PRIVATE_KEY" ubuntu@$WORKER_IP \
-          "sudo chmod +x /tmp/worker.sh && sudo timeout 600 /tmp/worker.sh --master-ip '$MASTER_IP' --token '$TOKEN' --environment '${var.environment}' --project '${var.project_name}' --rke2-version '${var.rke2_version}' 2>&1 | tee /home/ubuntu/worker-setup.log; exit $?" || {
-        echo "[worker-${count.index + 1}] ERROR: Worker script failed or timed out"
-        echo "[worker-${count.index + 1}] Checking logs remotely..."
-        ssh -o StrictHostKeyChecking=no -i "$PRIVATE_KEY" ubuntu@$WORKER_IP "sudo tail -50 /var/log/rke2-worker-setup.log 2>/dev/null || echo 'No log file'" || true
-        exit 1
-      }
-      
-      echo "[worker-${count.index + 1}] Worker provisioning completed successfully"
-    EOT
+  connection {
+    type        = "ssh"
+    user        = "ubuntu"
+    private_key = file(var.ssh_private_key_path)
+    host        = aws_instance.worker[count.index].public_ip
+    timeout     = "10m"
+  }
+
+  provisioner "remote-exec" {
+    inline = [
+      "echo 'Waiting for cloud-init to complete...'",
+      "cloud-init status --wait || true",
+      "echo 'System ready'"
+    ]
   }
 
   depends_on = [aws_instance.worker]
+}
+
+# -----------------------------------------------------------------------------
+# 2. Copy worker setup script to instance
+# -----------------------------------------------------------------------------
+resource "null_resource" "copy_worker_script" {
+  count = var.worker_count
+
+  triggers = {
+    instance_id = aws_instance.worker[count.index].id
+    script_hash = filemd5("${var.scripts_dir}/worker.sh")
+  }
+
+  connection {
+    type        = "ssh"
+    user        = "ubuntu"
+    private_key = file(var.ssh_private_key_path)
+    host        = aws_instance.worker[count.index].public_ip
+    timeout     = "5m"
+  }
+
+  provisioner "file" {
+    source      = "${var.scripts_dir}/worker.sh"
+    destination = "/tmp/worker.sh"
+  }
+
+  depends_on = [null_resource.wait_for_cloud_init]
+}
+
+# -----------------------------------------------------------------------------
+# 3. Execute worker setup script with parameters
+# -----------------------------------------------------------------------------
+resource "null_resource" "run_worker_setup" {
+  count = var.worker_count
+
+  triggers = {
+    instance_id = aws_instance.worker[count.index].id
+    script_hash = filemd5("${var.scripts_dir}/worker.sh")
+    master_ip   = var.master_private_ip
+    token_hash  = md5(var.rke2_token)
+  }
+
+  connection {
+    type        = "ssh"
+    user        = "ubuntu"
+    private_key = file(var.ssh_private_key_path)
+    host        = aws_instance.worker[count.index].public_ip
+    timeout     = "20m"
+  }
+
+  provisioner "remote-exec" {
+    inline = [
+      "chmod +x /tmp/worker.sh",
+      "sudo /tmp/worker.sh --master-ip '${var.master_private_ip}' --token '${var.rke2_token}' --environment '${var.environment}' --project '${var.project_name}' --rke2-version '${var.rke2_version}'"
+    ]
+  }
+
+  depends_on = [null_resource.copy_worker_script]
 }

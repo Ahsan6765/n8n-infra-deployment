@@ -12,6 +12,7 @@ exec > >(tee -a "$LOG_FILE") 2>&1
 log() { echo "[$(date +'%Y-%m-%d %H:%M:%S')] $1"; }
 
 # ---- Parse arguments ----
+RKE2_TOKEN=""
 DOMAIN=""
 ENVIRONMENT="dev"
 PROJECT="n8n"
@@ -19,6 +20,7 @@ RKE2_VERSION="stable"
 
 while [[ $# -gt 0 ]]; do
   case $1 in
+    --token)       RKE2_TOKEN="$2";  shift 2 ;;
     --domain)      DOMAIN="$2";      shift 2 ;;
     --environment) ENVIRONMENT="$2"; shift 2 ;;
     --project)     PROJECT="$2";     shift 2 ;;
@@ -27,8 +29,15 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# ---- Validate required parameters ----
+if [ -z "$RKE2_TOKEN" ]; then
+  log "ERROR: --token parameter is required"
+  exit 1
+fi
+
 log "=========================================="
 log "RKE2 Master Node Setup Starting"
+log "Token length: ${#RKE2_TOKEN}"
 log "Domain:      ${DOMAIN:-<none>}"
 log "Environment: $ENVIRONMENT"
 log "Project:     $PROJECT"
@@ -89,6 +98,7 @@ TLS_SANS="  - \"$PRIVATE_IP\""
 
 cat > /etc/rancher/rke2/config.yaml <<EOF
 write-kubeconfig-mode: "0644"
+token: "$RKE2_TOKEN"
 tls-san:
 $TLS_SANS
 cluster-cidr: "10.42.0.0/16"
@@ -133,20 +143,6 @@ until systemctl is-active --quiet rke2-server.service; do
 done
 log "rke2-server is active."
 
-# ---- Wait for node-token ----
-log "Waiting for node-token file (max 5 min)..."
-WAITED=0
-MAX_WAIT=300
-until [ -f /var/lib/rancher/rke2/server/node-token ]; do
-  sleep 5
-  WAITED=$((WAITED + 5))
-  if [ $WAITED -ge $MAX_WAIT ]; then
-    log "ERROR: node-token never appeared"
-    exit 1
-  fi
-done
-log "node-token found."
-
 # ---- Wait for rke2.yaml (kubeconfig) ----
 log "Waiting for rke2.yaml kubeconfig to appear (max 5 min)..."
 WAITED=0
@@ -161,12 +157,6 @@ until [ -f /etc/rancher/rke2/rke2.yaml ]; do
   fi
 done
 log "rke2.yaml exists."
-
-# ---- Save token for Terraform to retrieve ----
-TOKEN=$(cat /var/lib/rancher/rke2/server/node-token)
-echo "$TOKEN" > /tmp/rke2-token.txt
-chmod 644 /tmp/rke2-token.txt
-log "Token saved to /tmp/rke2-token.txt (length: ${#TOKEN})"
 
 # ---- Copy kubeconfig for Terraform retrieval ----
 cp /etc/rancher/rke2/rke2.yaml /tmp/kubeconfig.yaml
@@ -195,6 +185,5 @@ ln -sf /var/lib/rancher/rke2/bin/kubectl /usr/local/bin/kubectl 2>/dev/null || t
 
 log "=========================================="
 log "RKE2 Master Setup Completed Successfully"
-log "Token:     /tmp/rke2-token.txt"
 log "Kubeconfig: /tmp/kubeconfig.yaml"
 log "=========================================="

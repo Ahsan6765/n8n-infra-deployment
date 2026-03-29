@@ -35,3 +35,9 @@ output "kubeconfig_retrieval_status" {
   value       = fileexists("${path.root}/kubeconfig-${var.environment}.yaml") ? "[SUCCESS] Kubeconfig file exists" : "[FAILED] Kubeconfig file MISSING - retrieval failed"
   sensitive   = false
 }
+
+# Expose provisioner null_resource so root module can depends_on it for ordering
+output "provisioner_token_id" {
+  description = "ID of the token provisioner null_resource – used for cross-module dependency ordering."
+  value       = null_resource.master_provisioner_token.id
+}

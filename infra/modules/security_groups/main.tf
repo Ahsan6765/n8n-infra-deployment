@@ -98,6 +98,8 @@ resource "aws_security_group_rule" "master_egress" {
   security_group_id = aws_security_group.master.id
 }
 
+
+
 # ---- Worker Security Group ----
 resource "aws_security_group" "worker" {
   name        = "${var.project_name}-${var.environment}-worker-sg"

@@ -128,10 +128,11 @@ module "k8s_workers" {
   ssh_private_key_path = var.ssh_private_key_path
   scripts_dir          = "${path.root}/scripts"
 
-  # Explicit dependency: workers must not start until master instance is created
-  # (in addition to the implicit dependency on outputs)
+  # Explicit dependency: workers must not start until master is fully provisioned.
+  # The rke2_token input creates an implicit data dependency on the master module.
+  # depends_on enforces the entire module completion including all provisioners.
   depends_on = [
-    module.k8s_master
+    module.k8s_master,
   ]
 }
 

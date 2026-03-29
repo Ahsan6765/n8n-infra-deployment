@@ -240,17 +240,14 @@
 # ============================================================================
 # ============================================================================
 
-
 # =============================================================================
 # K8s Master Module – EC2 Instance (RKE2 Server)
 # =============================================================================
 
-# ---- Latest Ubuntu 22.04 LTS AMI ----
 data "aws_ssm_parameter" "ubuntu_ami" {
   name = "/aws/service/canonical/ubuntu/server/22.04/stable/current/amd64/hvm/ebs-gp2/ami-id"
 }
 
-# ---- Network Interface ----
 resource "aws_network_interface" "master" {
   subnet_id       = var.subnet_id
   security_groups = var.security_group_ids
@@ -260,7 +257,6 @@ resource "aws_network_interface" "master" {
   }
 }
 
-# ---- Elastic IP ----
 resource "aws_eip" "master" {
   domain            = "vpc"
   network_interface = aws_network_interface.master.id
@@ -273,7 +269,6 @@ resource "aws_eip" "master" {
   depends_on = [aws_network_interface.master]
 }
 
-# ---- EC2 Instance ----
 resource "aws_instance" "master" {
   ami                  = data.aws_ssm_parameter.ubuntu_ami.value
   instance_type        = var.instance_type
@@ -322,10 +317,9 @@ resource "aws_instance" "master" {
 resource "null_resource" "master_provisioner_wait" {
   provisioner "remote-exec" {
     inline = [
-      "echo 'Waiting for instance to be ready...'",
-      "while ! command -v cloud-init >/dev/null 2>&1; do sleep 5; done",
+      "echo 'Waiting for cloud-init...'",
       "cloud-init status --wait || true",
-      "echo 'System ready for RKE2 setup'"
+      "echo 'System ready'"
     ]
 
     connection {
@@ -341,9 +335,9 @@ resource "null_resource" "master_provisioner_wait" {
 }
 
 # =============================================================================
-# Copy master.sh
+# Copy and execute master.sh in ONE step (avoids multiple SSH connections)
 # =============================================================================
-resource "null_resource" "master_provisioner_copy" {
+resource "null_resource" "master_provisioner" {
   provisioner "file" {
     source      = "${var.scripts_dir}/master.sh"
     destination = "/tmp/master.sh"
@@ -357,13 +351,6 @@ resource "null_resource" "master_provisioner_copy" {
     }
   }
 
-  depends_on = [null_resource.master_provisioner_wait]
-}
-
-# =============================================================================
-# Execute master.sh (IMPORTANT FIX: run with bash)
-# =============================================================================
-resource "null_resource" "master_provisioner_execute" {
   provisioner "remote-exec" {
     inline = [
       "chmod +x /tmp/master.sh",
@@ -379,43 +366,11 @@ resource "null_resource" "master_provisioner_execute" {
     }
   }
 
-  depends_on = [null_resource.master_provisioner_copy]
+  depends_on = [null_resource.master_provisioner_wait]
 }
 
 # =============================================================================
-# Retrieve RKE2 Token (RETRY LOOP FIXED)
-# =============================================================================
-resource "null_resource" "master_provisioner_token" {
-  provisioner "local-exec" {
-    command = <<-EOT
-      PRIVATE_KEY='${var.ssh_private_key_path != "" ? var.ssh_private_key_path : "${path.root}/cluster-key.pem"}'
-      MASTER_IP='${aws_eip.master.public_ip}'
-      TOKEN_FILE='${path.root}/rke2-token-${var.environment}.txt'
-      MAX_RETRIES=30
-      RETRY_DELAY=10
-
-      echo "[INFO] Retrieving RKE2 token..."
-      for i in $(seq 1 $MAX_RETRIES); do
-        TOKEN_CONTENT=$(ssh -o StrictHostKeyChecking=no -i "$PRIVATE_KEY" ubuntu@$MASTER_IP "sudo cat /var/lib/rancher/rke2/server/node-token 2>/dev/null || cat /tmp/rke2-token.txt 2>/dev/null" || echo "")
-        if [ -n "$TOKEN_CONTENT" ] && [ $(echo -n "$TOKEN_CONTENT" | wc -c) -gt 40 ]; then
-          echo "$TOKEN_CONTENT" > "$TOKEN_FILE"
-          echo "[SUCCESS] Token saved locally."
-          exit 0
-        fi
-        echo "[INFO] Attempt $i/$MAX_RETRIES: Token not ready yet, retrying in $RETRY_DELAY seconds..."
-        sleep $RETRY_DELAY
-      done
-
-      echo "[ERROR] Failed to retrieve RKE2 token after $MAX_RETRIES attempts."
-      exit 1
-    EOT
-  }
-
-  depends_on = [null_resource.master_provisioner_execute]
-}
-
-# =============================================================================
-# Retrieve kubeconfig (RETRY LOOP FIXED)
+# Retrieve kubeconfig (runs in parallel with token generation)
 # =============================================================================
 resource "null_resource" "master_provisioner_kubeconfig" {
   provisioner "local-exec" {
@@ -423,38 +378,95 @@ resource "null_resource" "master_provisioner_kubeconfig" {
       PRIVATE_KEY='${var.ssh_private_key_path != "" ? var.ssh_private_key_path : "${path.root}/cluster-key.pem"}'
       MASTER_IP='${aws_eip.master.public_ip}'
       KUBECONFIG_FILE='${path.root}/kubeconfig-${var.environment}.yaml'
-      MAX_RETRIES=60
+      MAX_RETRIES=30
       RETRY_DELAY=10
 
-      echo "[INFO] Retrieving kubeconfig from $MASTER_IP (max $((MAX_RETRIES * RETRY_DELAY / 60)) min)..."
+      echo "[INFO] Retrieving kubeconfig from $MASTER_IP..."
       for i in $(seq 1 $MAX_RETRIES); do
-        # Attempt to copy /tmp/kubeconfig.yaml from master (written by master.sh)
-        # Suppress SSH exit code – file may not exist yet on early attempts
-        ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
-            -i "$PRIVATE_KEY" ubuntu@$MASTER_IP \
-            "sudo test -f /tmp/kubeconfig.yaml" 2>/dev/null || true
-
-        # Try SCP – only proceed if file arrived on master
         if scp -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
                -i "$PRIVATE_KEY" ubuntu@$MASTER_IP:/tmp/kubeconfig.yaml \
                "$KUBECONFIG_FILE" 2>/dev/null; then
-          # Validate the file has real content
+          
           FILE_SIZE=$(wc -c < "$KUBECONFIG_FILE" 2>/dev/null || echo 0)
           if [ "$FILE_SIZE" -gt 100 ]; then
             sed -i "s/127.0.0.1/${aws_eip.master.public_ip}/g" "$KUBECONFIG_FILE"
-            echo "[SUCCESS] Kubeconfig saved ($FILE_SIZE bytes). IP patched."
+            echo "[SUCCESS] Kubeconfig saved ($FILE_SIZE bytes)"
             exit 0
           fi
         fi
-
-        echo "[INFO] Attempt $i/$MAX_RETRIES: kubeconfig not ready, retrying in $RETRY_DELAY s..."
+        echo "[INFO] Attempt $i/$MAX_RETRIES: kubeconfig not ready, waiting..."
         sleep $RETRY_DELAY
       done
 
-      echo "[ERROR] Failed to retrieve kubeconfig after $MAX_RETRIES attempts."
+      echo "[ERROR] Failed to retrieve kubeconfig"
       exit 1
     EOT
   }
 
-  depends_on = [null_resource.master_provisioner_execute]
+  depends_on = [null_resource.master_provisioner]
 }
+
+# =============================================================================
+# Generate and retrieve RKE2 Token (using local-exec only, no remote-exec)
+# =============================================================================
+resource "null_resource" "master_provisioner_token" {
+  provisioner "local-exec" {
+    command = <<-EOT
+      PRIVATE_KEY='${var.ssh_private_key_path != "" ? var.ssh_private_key_path : "${path.root}/cluster-key.pem"}'
+      MASTER_IP='${aws_eip.master.public_ip}'
+      TOKEN_FILE='${path.root}/rke2-token-${var.environment}.txt'
+      MAX_RETRIES=60
+      RETRY_DELAY=5
+
+      echo "[INFO] Generating fresh RKE2 token from master..."
+      
+      # First wait for rke2-server to be active
+      for i in $(seq 1 60); do
+        if ssh -o StrictHostKeyChecking=no -o ConnectTimeout=5 -i "$PRIVATE_KEY" ubuntu@$MASTER_IP "sudo systemctl is-active rke2-server" >/dev/null 2>&1; then
+          echo "[INFO] RKE2 server is active"
+          break
+        fi
+        echo "[INFO] Waiting for rke2-server to be active... ($i/60)"
+        sleep 5
+      done
+
+      # Now generate fresh token
+      for i in $(seq 1 $MAX_RETRIES); do
+        TOKEN_CONTENT=$(ssh -o StrictHostKeyChecking=no -o ConnectTimeout=10 \
+          -i "$PRIVATE_KEY" ubuntu@$MASTER_IP \
+          "sudo /usr/local/bin/rke2 token create --ttl 8760h 2>/dev/null || echo ''")
+        
+        if [ -n "$TOKEN_CONTENT" ] && echo "$TOKEN_CONTENT" | grep -q "^K10"; then
+          echo "$TOKEN_CONTENT" > "$TOKEN_FILE"
+          echo "[SUCCESS] Fresh token saved (length: $(echo -n "$TOKEN_CONTENT" | wc -c))"
+          exit 0
+        fi
+        
+        echo "[INFO] Attempt $i/$MAX_RETRIES: Token not ready, retrying..."
+        sleep $RETRY_DELAY
+      done
+
+      echo "[ERROR] Failed to generate token"
+      exit 1
+    EOT
+  }
+
+  depends_on = [null_resource.master_provisioner]
+}
+
+# =============================================================================
+# Outputs
+# =============================================================================
+# output "private_ip" {
+#   value = aws_instance.master.private_ip
+# }
+
+# output "public_ip" {
+#   value = aws_eip.master.public_ip
+# }
+
+# output "rke2_token" {
+#   value     = trimspace(file("${path.root}/rke2-token-${var.environment}.txt"))
+#   sensitive = true
+#   depends_on = [null_resource.master_provisioner_token]
+# }

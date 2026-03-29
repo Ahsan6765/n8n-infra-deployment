@@ -2,48 +2,16 @@
 # # =============================================================================
 # # RKE2 Worker Node Setup Script
 # # =============================================================================
-# # This script sets up a RKE2 agent (worker) on an Ubuntu 22.04 instance.
-# # Run this script on each worker node after the master node is fully initialized.
-# #
-# # Usage: ./worker.sh --master-ip <PRIVATE_IP> --token <TOKEN> [OPTIONS]
-# #
-# # Required:
-# #   --master-ip <IP>           Master node private IP address
-# #   --token <TOKEN>            Cluster join token from master
-# #
-# # Optional:
-# #   --environment <env>        Environment name (default: dev)
-# #   --project <name>           Project name (default: n8n)
-# #   --rke2-version <version>   RKE2 version channel (default: stable)
-# #
-# # Example:
-# #   ./worker.sh --master-ip 10.0.1.10 --token "K123456789abc..." --environment prod
-# # =============================================================================
+# set -e
+# set -o pipefail
 
-# set -euo pipefail
-
-# # ---- Logging Setup ----
 # LOG_FILE="/var/log/rke2-worker-setup.log"
 # mkdir -p "$(dirname "$LOG_FILE")"
 # exec > >(tee -a "$LOG_FILE") 2>&1
 
-# log_info() {
-#   echo "[$(date +'%Y-%m-%d %H:%M:%S')] [INFO] $1"
-# }
+# log() { echo "[$(date +'%Y-%m-%d %H:%M:%S')] $1"; }
 
-# log_error() {
-#   echo "[$(date +'%Y-%m-%d %H:%M:%S')] [ERROR] $1" >&2
-# }
-
-# log_warn() {
-#   echo "[$(date +'%Y-%m-%d %H:%M:%S')] [WARN] $1"
-# }
-
-# log_debug() {
-#   echo "[$(date +'%Y-%m-%d %H:%M:%S')] [DEBUG] $1"
-# }
-
-# # ---- Parse arguments ----
+# # ---- Parse named arguments ----
 # MASTER_IP=""
 # RKE2_TOKEN=""
 # ENVIRONMENT="dev"
@@ -52,204 +20,110 @@
 
 # while [[ $# -gt 0 ]]; do
 #   case $1 in
-#     --master-ip)
-#       MASTER_IP="$2"
-#       shift 2
-#       ;;
-#     --token)
-#       RKE2_TOKEN="$2"
-#       shift 2
-#       ;;
-#     --environment)
-#       ENVIRONMENT="$2"
-#       shift 2
-#       ;;
-#     --project)
-#       PROJECT_NAME="$2"
-#       shift 2
-#       ;;
-#     --rke2-version)
-#       RKE2_VERSION="$2"
-#       shift 2
-#       ;;
-#     *)
-#       log_error "Unknown option: $1"
-#       exit 1
-#       ;;
+#     --master-ip)    MASTER_IP="$2";    shift 2 ;;
+#     --token)        RKE2_TOKEN="$2";   shift 2 ;;
+#     --environment)  ENVIRONMENT="$2";  shift 2 ;;
+#     --project)      PROJECT_NAME="$2"; shift 2 ;;
+#     --rke2-version) RKE2_VERSION="$2"; shift 2 ;;
+#     *) log "Unknown argument: $1"; exit 1 ;;
 #   esac
 # done
 
-# # ---- Validate required arguments ----
+# # ---- Validate required args ----
 # if [ -z "$MASTER_IP" ]; then
-#   log_error "Missing required argument: --master-ip"
-#   log_error "Usage: ./worker.sh --master-ip <IP> --token <TOKEN> [OPTIONS]"
+#   log "ERROR: --master-ip is required"
 #   exit 1
 # fi
-
 # if [ -z "$RKE2_TOKEN" ]; then
-#   log_error "Missing required argument: --token"
-#   log_error "Usage: ./worker.sh --master-ip <IP> --token <TOKEN>"
+#   log "ERROR: --token is required"
 #   exit 1
 # fi
 
-# log_info "=========================================="
-# log_info "RKE2 Worker Node Setup Starting"
-# log_info "=========================================="
-# log_info "Master IP: $MASTER_IP"
-# log_info "Environment: $ENVIRONMENT"
-# log_info "Project: $PROJECT_NAME"
-# log_info "RKE2 Version: $RKE2_VERSION"
-# log_info "Log File: $LOG_FILE"
-# log_info "=========================================="
+# log "=========================================="
+# log "RKE2 Worker Node Setup Starting"
+# log "Master IP:   $MASTER_IP"
+# log "Environment: $ENVIRONMENT"
+# log "Project:     $PROJECT_NAME"
+# log "RKE2 Ver:   $RKE2_VERSION"
+# log "=========================================="
 
-# # ---- Validate we're running with proper privileges ----
+# # ---- Root check ----
 # if [[ $EUID -ne 0 ]]; then
-#   log_error "This script requires elevated privileges (root/sudo)"
+#   log "ERROR: Must run as root (use sudo)"
 #   exit 1
 # fi
-
-# log_info "✓ Running with root privileges"
 
 # # ---- System prerequisites ----
-# log_info "Installing system packages with timeout protection..."
+# log "Installing system packages..."
 # export DEBIAN_FRONTEND=noninteractive
+# apt-get update -y
+# apt-get install -y curl wget jq
 
-# # Update with timeout
-# if ! timeout 120 apt-get update -y > /dev/null 2>&1; then
-#   log_warn "apt-get update timed out or failed (continuing with cached packages)"
-# fi
+# # ---- Disable swap ----
+# log "Disabling swap..."
+# swapoff -a || true
+# sed -i '/swap/d' /etc/fstab || true
 
-# # Install packages with timeout and flock to handle concurrent access
-# if ! timeout 180 bash -c 'flock /var/lib/apt/lists/lock apt-get install -y curl wget git jq awscli' > /dev/null 2>&1; then
-#   log_warn "apt-get install timed out (packages may already be installed or lock held)"
-# fi
-
-# log_info "✓ System packages ready"
-
-# # ---- Disable swap (required by Kubernetes) ----
-# log_info "Disabling swap..."
-# timeout 30 swapoff -a || log_warn "Could not swapoff or it timed out (may not have swap)"
-# sed -i '/swap/d' /etc/fstab || log_warn "Could not update fstab"
-# log_info "✓ Swap disabled"
-
-# # ---- Set kernel parameters for Kubernetes networking ----
-# log_info "Configuring kernel parameters..."
-# mkdir -p /etc/sysctl.d
-# cat > /etc/sysctl.d/99-kubernetes.conf <<'EOF'
-# net.bridge.bridge-nf-call-iptables  = 1
-# net.bridge.bridge-nf-call-ip6tables = 1
-# net.ipv4.ip_forward                  = 1
-# EOF
-# sysctl --system > /dev/null 2>&1 || log_warn "sysctl configuration had issues"
-# log_info "✓ Kernel parameters configured"
-
-# # ---- Load overlay and br_netfilter kernel modules ----
-# log_info "Loading kernel modules..."
-# if ! modprobe overlay; then
-#   log_warn "Could not load overlay module (may already be loaded)"
-# fi
-# if ! modprobe br_netfilter; then
-#   log_warn "Could not load br_netfilter module (may already be loaded)"
-# fi
-
-# # Verify at least one module loaded
-# if ! (lsmod | grep -q overlay) && ! (lsmod | grep -q br_netfilter); then
-#   log_error "Neither overlay nor br_netfilter modules are loaded - RKE2 will fail"
-#   exit 1
-# fi
+# # ---- Kernel modules ----
+# log "Loading kernel modules..."
+# modprobe overlay       || true
+# modprobe br_netfilter  || true
 
 # mkdir -p /etc/modules-load.d
-# cat >>/etc/modules-load.d/containerd.conf <<'EOF'
+# cat > /etc/modules-load.d/rke2.conf <<'EOF'
 # overlay
 # br_netfilter
 # EOF
-# log_info "✓ Kernel modules loaded"
 
-# # ---- Retrieve instance metadata ----
-# log_info "Retrieving instance metadata..."
-# PRIVATE_IP=$(timeout 5 curl -s http://169.254.169.254/latest/meta-data/local-ipv4 2>/dev/null || echo "UNKNOWN")
-# INSTANCE_ID=$(timeout 5 curl -s http://169.254.169.254/latest/meta-data/instance-id 2>/dev/null || echo "UNKNOWN")
-# AVAILABILITY_ZONE=$(timeout 5 curl -s http://169.254.169.254/latest/meta-data/placement/availability-zone 2>/dev/null || echo "UNKNOWN")
-# log_info "✓ Instance metadata retrieved"
-# log_info "  - Private IP: $PRIVATE_IP"
-# log_info "  - Instance ID: $INSTANCE_ID"
-# log_info "  - Availability Zone: $AVAILABILITY_ZONE"
+# # ---- Kernel parameters ----
+# log "Configuring kernel parameters..."
+# cat > /etc/sysctl.d/99-kubernetes.conf <<'EOF'
+# net.bridge.bridge-nf-call-iptables  = 1
+# net.bridge.bridge-nf-call-ip6tables = 1
+# net.ipv4.ip_forward                 = 1
+# EOF
+# sysctl --system > /dev/null 2>&1 || true
 
-# # ---- Wait for master node to be reachable (TCP port 9345) ----
-# log_info "Checking master node API availability at $MASTER_IP:9345..."
-# MAX_ATTEMPTS=36  # Reduced from 60 (10 min) to 36 (6 min with exponential backoff)
-# ATTEMPT=0
-# MASTER_READY=false
-# BACKOFF_DELAY=5  # Start with 5 seconds
-
-# while [ $ATTEMPT -lt $MAX_ATTEMPTS ]; do
-#   if timeout 3 bash -c "echo > /dev/tcp/$MASTER_IP/9345" 2>/dev/null; then
-#     log_info "✓ Master node is reachable at $MASTER_IP:9345"
-#     MASTER_READY=true
-#     break
+# # ---- Wait for master port 9345 to be reachable ----
+# log "Waiting for master RKE2 supervisor at $MASTER_IP:9345 (max 10 min)..."
+# WAITED=0
+# MAX_WAIT=600
+# until timeout 3 bash -c "echo > /dev/tcp/$MASTER_IP/9345" 2>/dev/null; do
+#   sleep 10
+#   WAITED=$((WAITED + 10))
+#   log "  [${WAITED}s] Master not reachable on :9345 yet..."
+#   if [ $WAITED -ge $MAX_WAIT ]; then
+#     log "ERROR: Could not reach master at $MASTER_IP:9345 after $MAX_WAIT seconds"
+#     log "Possible causes:"
+#     log "  1. Security group does not allow port 9345 from workers"
+#     log "  2. RKE2 server is not yet running on master"
+#     log "  3. Wrong master IP (got: $MASTER_IP)"
+#     exit 1
 #   fi
-#   ATTEMPT=$((ATTEMPT + 1))
-  
-#   # Calculate delay with short exponential backoff (cap at 10 seconds)
-#   CURRENT_DELAY=$((BACKOFF_DELAY + (ATTEMPT - 1) / 4))  # Increase every 4 attempts
-#   [ $CURRENT_DELAY -gt 10 ] && CURRENT_DELAY=10
-  
-#   if [ $ATTEMPT -le 5 ] || [ $((ATTEMPT % 6)) -eq 0 ]; then
-#     ELAPSED=$((ATTEMPT * 5 + (ATTEMPT - 1) / 4 * 2))  # Rough estimate
-#     log_info "  Attempt $ATTEMPT/$MAX_ATTEMPTS: Master not ready (waiting ${CURRENT_DELAY}s)"
-#   fi
-  
-#   sleep "$CURRENT_DELAY"
 # done
+# log "Master is reachable on port 9345."
 
-# if [ "$MASTER_READY" = false ]; then
-#   log_error "Could not reach master at $MASTER_IP:9345 after ~6 minutes"
-#   log_error ""
-#   log_error "Possible causes:"
-#   log_error "  1. Master node is not running or still initializing"
-#   log_error "  2. Security group does not allow port 9345 from worker"
-#   log_error "  3. Network connectivity issue between worker and master"
-#   log_error "  4. Master IP address is incorrect (got: $MASTER_IP)"
-#   log_error "  5. RKE2 master service failed to start"
-#   log_error ""
-#   log_error "Debugging steps:"
-#   log_error "  - Verify master instance is running"
-#   log_error "  - Check master security group inbound rules for port 9345"
-#   log_error "  - From master, run: systemctl status rke2-server"
-#   log_error "  - From master, check: journalctl -u rke2-server | head -50"
-#   exit 1
-# fi
-
-# # ---- Validate token format ----
-# log_info "Validating cluster token..."
+# # ---- Validate token ----
 # TOKEN_LEN=${#RKE2_TOKEN}
-
 # if [ "$TOKEN_LEN" -lt 10 ]; then
-#   log_error "Token appears invalid (too short: $TOKEN_LEN characters)"
-#   log_error "Expected minimum length: 40 characters"
+#   log "ERROR: Token appears invalid (too short: $TOKEN_LEN chars)"
 #   exit 1
 # fi
+# log "Token validated (length: $TOKEN_LEN chars)"
 
-# if [ "$TOKEN_LEN" -lt 40 ]; then
-#   log_warn "Token is shorter than expected ($TOKEN_LEN chars), but continuing..."
+# # ---- Clean any previous RKE2 installation ----
+# log "Cleaning any previous RKE2 installation..."
+# if [ -f /usr/local/bin/rke2-killall.sh ]; then
+#   /usr/local/bin/rke2-killall.sh 2>/dev/null || true
 # fi
+# rm -rf /etc/rancher/rke2 /var/lib/rancher/rke2 /run/rke2 /run/k3s
 
-# TOKEN_PREFIX=$(echo "$RKE2_TOKEN" | cut -c1-15)
-# log_info "✓ Token validated (length: $TOKEN_LEN characters, prefix: ${TOKEN_PREFIX}...)"
+# # ---- Create RKE2 config ----
+# log "Creating RKE2 agent config..."
+# mkdir -p /etc/rancher/rke2
 
-# # ---- Create RKE2 config directory ----
-# log_info "Creating RKE2 config directory..."
-# mkdir -p /etc/rancher/rke2 || {
-#   log_error "Failed to create /etc/rancher/rke2 directory"
-#   exit 1
-# }
-# log_info "✓ RKE2 config directory created"
-
-# # ---- Write RKE2 agent config ----
-# log_info "Creating RKE2 agent configuration file..."
+# # Use token as-is (should already have correct CA hash from master)
 # cat > /etc/rancher/rke2/config.yaml <<EOF
-# # RKE2 Agent Configuration
-# # Generated: $(date)
 # server: https://$MASTER_IP:9345
 # token: "$RKE2_TOKEN"
 # node-label:
@@ -258,200 +132,270 @@
 #   - "project=$PROJECT_NAME"
 # EOF
 
-# if [ ! -f /etc/rancher/rke2/config.yaml ]; then
-#   log_error "Failed to create RKE2 config file at /etc/rancher/rke2/config.yaml"
-#   exit 1
-# fi
+# log "RKE2 config written to /etc/rancher/rke2/config.yaml"
+# log "Config contents (token hidden):"
+# grep -v "token:" /etc/rancher/rke2/config.yaml || true
 
-# log_info "✓ RKE2 agent configuration file created"
-# log_debug "Config file location: /etc/rancher/rke2/config.yaml"
-
-# # ---- Download and install RKE2 agent ----
-# log_info "Downloading RKE2 agent installer (channel: $RKE2_VERSION) with 5-minute timeout..."
-# if ! timeout 300 curl -sfL https://get.rke2.io | timeout 300 sh -s - agent 2>&1 | tee -a "$LOG_FILE"; then
-#   log_error "Failed to download or install RKE2 agent (timeout or network issue)"
-#   log_error "Possible causes:"
-#   log_error "  - Network connectivity issue (cannot reach get.rke2.io)"
-#   log_error "  - Invalid RKE2 version channel: $RKE2_VERSION"
-#   log_error "  - Insufficient disk space"
-#   exit 1
+# # ---- Install RKE2 agent ----
+# log "Installing RKE2 agent (channel: $RKE2_VERSION)..."
+# if [[ "$RKE2_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+#   curl -sfL https://get.rke2.io | INSTALL_RKE2_TYPE="agent" INSTALL_RKE2_VERSION="$RKE2_VERSION" sh -
+# else
+#   curl -sfL https://get.rke2.io | INSTALL_RKE2_TYPE="agent" INSTALL_RKE2_CHANNEL="$RKE2_VERSION" sh -
 # fi
-# log_info "✓ RKE2 agent installed successfully"
+# log "RKE2 agent installed."
 
 # # ---- Enable and start RKE2 agent ----
-# log_info "Enabling and starting RKE2 agent service..."
-# systemctl daemon-reload || {
-#   log_error "Failed to reload systemctl daemon configuration"
-#   exit 1
-# }
+# log "Starting RKE2 agent service..."
+# systemctl daemon-reload
+# systemctl enable rke2-agent.service
+# systemctl start rke2-agent.service
 
-# systemctl enable rke2-agent.service || {
-#   log_error "Failed to enable rke2-agent service"
-#   exit 1
-# }
-
-# log_debug "Starting rke2-agent service..."
-# if ! systemctl start rke2-agent.service; then
-#   log_error "Failed to start rke2-agent service"
-#   log_error "Service status:"
-#   systemctl status rke2-agent.service 2>&1 | tee -a "$LOG_FILE" || true
-#   exit 1
-# fi
-
-# log_info "✓ RKE2 agent service started"
-
-# # ---- Wait for agent to become active ----
-# log_info "Waiting for RKE2 agent to initialize (up to 3 minutes)..."
-# AGENT_READY=false
-# AGENT_ATTEMPTS=0
-# MAX_AGENT_ATTEMPTS=36  # 36 × 5 seconds = 3 minutes (reduced from 5 minutes)
-
-# while [ $AGENT_ATTEMPTS -lt $MAX_AGENT_ATTEMPTS ]; do
-#   AGENT_ATTEMPTS=$((AGENT_ATTEMPTS + 1))
-  
-#   if systemctl is-active rke2-agent &>/dev/null; then
-#     log_info "✓ RKE2 agent service is active"
-#     AGENT_READY=true
-#     break
+# # ---- Wait for agent to become active (up to 10 min) ----
+# log "Waiting for rke2-agent to become active (max 10 min)..."
+# WAITED=0
+# MAX_WAIT=600
+# until systemctl is-active --quiet rke2-agent.service; do
+#   sleep 10
+#   WAITED=$((WAITED + 10))
+#   log "  [${WAITED}s] Agent still initializing..."
+#   if [ $WAITED -ge $MAX_WAIT ]; then
+#     log "ERROR: rke2-agent did not become active within $MAX_WAIT seconds"
+#     log "Checking recent logs..."
+#     journalctl -u rke2-agent -n 50 --no-pager || true
+#     exit 1
 #   fi
-  
-#   # Show progress every 6 attempts (30 seconds)
-#   if [ $((AGENT_ATTEMPTS % 6)) -eq 0 ]; then
-#     ELAPSED=$((AGENT_ATTEMPTS * 5))
-#     log_info "  [$ELAPSED seconds] Agent still initializing, waiting..."
-#   fi
-  
-#   # Check for catastrophic failures
-#   if systemctl status rke2-agent 2>&1 | grep -q "failed\|error\|inactive"; then
-#     if [ $AGENT_ATTEMPTS -gt 3 ]; then
-#       log_error "RKE2 agent service failed to start"
-#       log_error "Service status:"
-#       systemctl status rke2-agent 2>&1 | tee -a "$LOG_FILE" || true
-#       exit 1
-#     fi
-#   fi
-  
-#   sleep 5
 # done
+# log "rke2-agent is active and running."
 
-# if [ "$AGENT_READY" = false ]; then
-#   log_error "RKE2 agent failed to start within 3 minutes"
-#   log_error "Recent service logs:"
-#   journalctl -u rke2-agent -n 50 2>&1 | tee -a "$LOG_FILE" || true
-#   exit 1
-# fi
-
-# # ---- Wait a bit longer for agent to register with cluster ----
-# log_info "Waiting for agent to register with cluster (10 seconds)..."
+# # ---- Verify node joined successfully ----
+# log "Verifying node joined the cluster..."
 # sleep 10
-
-# # ---- Verify agent is still running ----
-# log_info "Verifying RKE2 agent is running..."
-# if ! systemctl is-active rke2-agent &>/dev/null; then
-#   log_error "RKE2 agent is no longer running after initialization"
-#   log_error "Recent service logs:"
-#   journalctl -u rke2-agent -n 50 2>&1 | tee -a "$LOG_FILE" || true
-#   exit 1
-# fi
-
-# log_info "✓ RKE2 agent is running and ready"
-
-# # ---- Add RKE2 binaries to PATH for ubuntu user ----
-# log_info "Configuring PATH for RKE2 binaries..."
-# BASHRC_PATH="/home/ubuntu/.bashrc"
-# if [ -f "$BASHRC_PATH" ]; then
-#   if ! grep -q "/var/lib/rancher/rke2/bin" "$BASHRC_PATH" 2>/dev/null; then
-#     cat <<'EOF' >> "$BASHRC_PATH"
-
-# # RKE2 binaries PATH
-# export PATH=$PATH:/var/lib/rancher/rke2/bin
-# EOF
-#     log_info "✓ Updated PATH in /home/ubuntu/.bashrc"
-#   else
-#     log_info "✓ PATH already configured in /home/ubuntu/.bashrc"
-#   fi
+# if systemctl is-active --quiet rke2-agent.service; then
+#   log "SUCCESS: Worker node has joined the cluster"
 # else
-#   log_warn "Could not find /home/ubuntu/.bashrc (non-critical)"
+#   log "WARNING: Agent status check failed, but service is active"
 # fi
 
-# # ---- Final validation and logging ----
-# log_info "=========================================="
-# log_info "✓ RKE2 Worker Node Setup Complete"
-# log_info "=========================================="
-# log_info ""
-# log_info "Worker node information:"
-# log_info "  - Private IP: $PRIVATE_IP"
-# log_info "  - Master IP: $MASTER_IP"
-# log_info "  - Environment: $ENVIRONMENT"
-# log_info "  - Project: $PROJECT_NAME"
-# log_info "  - Status: Joining cluster..."
-# log_info ""
-# log_info "Next steps:"
-# log_info "  1. Wait 1-2 minutes for the node to fully join the cluster"
-# log_info "  2. From the master node, run:"
-# log_info "       export KUBECONFIG=/etc/rancher/rke2/rke2.yaml"
-# log_info "       kubectl get nodes"
-# log_info "  3. This worker should appear in the output shortly"
-# log_info ""
-# log_info "Troubleshooting:"
-# log_info "  If the node doesn't appear after 5 minutes:"
-# log_info "    - Check this log file: $LOG_FILE"
-# log_info "    - Check RKE2 agent status: systemctl status rke2-agent"
-# log_info "    - View agent logs: journalctl -u rke2-agent -f"
-# log_info "    - Verify network connectivity to master:"
-# log_info "        ping $MASTER_IP"
-# log_info "        telnet $MASTER_IP 9345"
-# log_info "    - From master, check cluster status:"
-# log_info "        export KUBECONFIG=/etc/rancher/rke2/rke2.yaml"
-# log_info "        kubectl describe node $(hostname)"
-# log_info "=========================================="
-# log_info ""
-# log_info "Setup completed successfully at $(date)"
+# # ---- Add RKE2 binaries to PATH ----
+# if ! grep -q "/var/lib/rancher/rke2/bin" /home/ubuntu/.bashrc 2>/dev/null; then
+#   cat >> /home/ubuntu/.bashrc <<'BASHRC'
 
-# ============================================================================
-# ============================================================================
+# # RKE2 binaries
+# export PATH=$PATH:/var/lib/rancher/rke2/bin
+# BASHRC
+# fi
+
+# log "=========================================="
+# log "RKE2 Worker Node Setup Complete"
+# log "Worker is joining the cluster at $MASTER_IP"
+# log "  Check from master: kubectl get nodes"
+# log "=========================================="
 
 
-
-#!/bin/bash
 # =============================================================================
-# RKE2 Worker Node Setup Script (Optimized for Terraform Provisioning)
 # =============================================================================
 
 #!/bin/bash
+# =============================================================================
+# RKE2 Worker Node Setup Script
+# =============================================================================
 set -e
 set -o pipefail
 
 LOG_FILE="/var/log/rke2-worker-setup.log"
-exec > >(tee -a $LOG_FILE) 2>&1
+mkdir -p "$(dirname "$LOG_FILE")"
+exec > >(tee -a "$LOG_FILE") 2>&1
 
-MASTER_IP=$1
-NODE_TOKEN=$2
+log() { echo "[$(date +'%Y-%m-%d %H:%M:%S')] $1"; }
 
-echo "Starting RKE2 worker setup..."
-echo "Master IP: $MASTER_IP"
+# ---- Parse named arguments ----
+MASTER_IP=""
+RKE2_TOKEN=""
+ENVIRONMENT="dev"
+PROJECT_NAME="n8n"
+RKE2_VERSION="stable"
 
-# Disable swap
-sudo swapoff -a
-sudo sed -i '/ swap / s/^/#/' /etc/fstab
+while [[ $# -gt 0 ]]; do
+  case $1 in
+    --master-ip)    MASTER_IP="$2";    shift 2 ;;
+    --token)        RKE2_TOKEN="$2";   shift 2 ;;
+    --environment)  ENVIRONMENT="$2";  shift 2 ;;
+    --project)      PROJECT_NAME="$2"; shift 2 ;;
+    --rke2-version) RKE2_VERSION="$2"; shift 2 ;;
+    *) log "Unknown argument: $1"; exit 1 ;;
+  esac
+done
 
-# Install dependencies
-sudo apt-get update -y
-sudo apt-get install -y curl
+# ---- Validate required args ----
+if [ -z "$MASTER_IP" ]; then
+  log "ERROR: --master-ip is required"
+  exit 1
+fi
+if [ -z "$RKE2_TOKEN" ]; then
+  log "ERROR: --token is required"
+  exit 1
+fi
 
-# Install RKE2
-curl -sfL https://get.rke2.io | sudo INSTALL_RKE2_TYPE="agent" sh -
+log "=========================================="
+log "RKE2 Worker Node Setup Starting"
+log "Master IP:   $MASTER_IP"
+log "Token length: ${#RKE2_TOKEN}"
+log "Environment: $ENVIRONMENT"
+log "Project:     $PROJECT_NAME"
+log "RKE2 Ver:   $RKE2_VERSION"
+log "=========================================="
 
-# Create config
-sudo mkdir -p /etc/rancher/rke2
+# ---- Root check ----
+if [[ $EUID -ne 0 ]]; then
+  log "ERROR: Must run as root"
+  exit 1
+fi
 
-cat <<EOF | sudo tee /etc/rancher/rke2/config.yaml
-server: https://$MASTER_IP:9345
-token: $NODE_TOKEN
+# ---- System prerequisites ----
+log "Installing system packages..."
+export DEBIAN_FRONTEND=noninteractive
+apt-get update -y >/dev/null 2>&1
+apt-get install -y curl wget jq netcat-openbsd >/dev/null 2>&1 || apt-get install -y curl wget jq netcat >/dev/null 2>&1
+log "Packages installed"
+
+# ---- Disable swap ----
+log "Disabling swap..."
+swapoff -a || true
+sed -i '/swap/d' /etc/fstab || true
+
+# ---- Kernel modules ----
+log "Loading kernel modules..."
+modprobe overlay || true
+modprobe br_netfilter || true
+
+mkdir -p /etc/modules-load.d
+cat > /etc/modules-load.d/rke2.conf <<'EOF'
+overlay
+br_netfilter
 EOF
 
-# Enable and start agent
-sudo systemctl enable rke2-agent
-sudo systemctl start rke2-agent
+# ---- Kernel parameters ----
+log "Configuring kernel parameters..."
+cat > /etc/sysctl.d/99-kubernetes.conf <<'EOF'
+net.bridge.bridge-nf-call-iptables  = 1
+net.bridge.bridge-nf-call-ip6tables = 1
+net.ipv4.ip_forward                 = 1
+EOF
+sysctl --system >/dev/null 2>&1 || true
 
-echo "RKE2 worker setup completed"
+# ---- Wait for master port 9345 with timeout ----
+log "Checking connectivity to master at $MASTER_IP:9345..."
+WAITED=0
+MAX_WAIT=300  # 5 minutes max
+
+until nc -z -w 5 $MASTER_IP 9345 2>/dev/null; do
+  WAITED=$((WAITED + 5))
+  log "  [$WAITED s] Cannot reach master:9345 yet..."
+  
+  if [ $WAITED -ge $MAX_WAIT ]; then
+    log "ERROR: Could not reach master at $MASTER_IP:9345 after $MAX_WAIT seconds"
+    log "Checking network connectivity..."
+    ping -c 3 $MASTER_IP || log "Cannot ping master"
+    log "Possible causes:"
+    log "  1. Security group blocking port 9345"
+    log "  2. RKE2 server not running on master"
+    log "  3. Wrong master IP"
+    exit 1
+  fi
+  sleep 5
+done
+log "SUCCESS: Master $MASTER_IP:9345 is reachable"
+
+# ---- Clean any previous RKE2 installation ----
+log "Cleaning any previous RKE2 installation..."
+if systemctl is-active rke2-agent >/dev/null 2>&1; then
+  systemctl stop rke2-agent || true
+fi
+if [ -f /usr/local/bin/rke2-killall.sh ]; then
+  /usr/local/bin/rke2-killall.sh 2>/dev/null || true
+fi
+rm -rf /etc/rancher/rke2 /var/lib/rancher/rke2 /run/rke2 /run/k3s /var/run/rke2
+log "Cleanup complete"
+
+# ---- Create RKE2 config ----
+log "Creating RKE2 agent config..."
+mkdir -p /etc/rancher/rke2
+
+# Debug: Show token format (hide actual token)
+TOKEN_PREFIX=$(echo "$RKE2_TOKEN" | cut -c1-20)
+log "Token prefix: ${TOKEN_PREFIX}... (length: ${#RKE2_TOKEN})"
+
+cat > /etc/rancher/rke2/config.yaml <<EOF
+server: https://$MASTER_IP:9345
+token: "$RKE2_TOKEN"
+node-label:
+  - "node-role=worker"
+  - "environment=$ENVIRONMENT"
+  - "project=$PROJECT_NAME"
+EOF
+
+log "RKE2 config created at /etc/rancher/rke2/config.yaml"
+
+# ---- Install RKE2 agent ----
+log "Installing RKE2 agent (channel: $RKE2_VERSION)..."
+if [[ "$RKE2_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+  curl -sfL https://get.rke2.io | INSTALL_RKE2_TYPE="agent" INSTALL_RKE2_VERSION="$RKE2_VERSION" sh -
+else
+  curl -sfL https://get.rke2.io | INSTALL_RKE2_TYPE="agent" INSTALL_RKE2_CHANNEL="$RKE2_VERSION" sh -
+fi
+log "RKE2 agent installed"
+
+# ---- Enable and start RKE2 agent ----
+log "Starting RKE2 agent service..."
+systemctl daemon-reload
+systemctl enable rke2-agent.service
+
+# Start with timeout monitoring
+log "Starting rke2-agent (will monitor for 10 minutes)..."
+systemctl start rke2-agent.service
+
+# ---- Wait for agent with detailed logging ----
+WAITED=0
+MAX_WAIT=600  # 10 minutes
+CHECK_INTERVAL=10
+
+while [ $WAITED -lt $MAX_WAIT ]; do
+  sleep $CHECK_INTERVAL
+  WAITED=$((WAITED + CHECK_INTERVAL))
+  
+  # Check if service is active
+  if systemctl is-active --quiet rke2-agent.service; then
+    log "SUCCESS: rke2-agent is active after ${WAITED}s"
+    
+    # Additional check: verify the node actually joined
+    sleep 5
+    if systemctl is-active --quiet rke2-agent.service; then
+      log "Worker node setup completed successfully"
+      exit 0
+    fi
+  fi
+  
+  # Show progress every 30 seconds
+  if [ $((WAITED % 30)) -eq 0 ]; then
+    log "[$WAITED s] Still waiting for rke2-agent..."
+    
+    # Check for errors in logs
+    RECENT_ERRORS=$(journalctl -u rke2-agent --since "1 minute ago" -q 2>/dev/null | grep -i "error\|fail" | head -3 || true)
+    if [ -n "$RECENT_ERRORS" ]; then
+      log "Recent errors found:"
+      echo "$RECENT_ERRORS" | while read line; do log "  $line"; done
+    fi
+  fi
+  
+  # Check if service failed
+  if systemctl is-failed --quiet rke2-agent.service; then
+    log "ERROR: rke2-agent service has failed"
+    journalctl -u rke2-agent -n 50 --no-pager || true
+    exit 1
+  fi
+done
+
+log "ERROR: rke2-agent did not become active within $MAX_WAIT seconds"
+journalctl -u rke2-agent -n 100 --no-pager || true
+exit 1

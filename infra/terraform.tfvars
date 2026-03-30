@@ -53,4 +53,5 @@ create_route53_zone = false # Disabled: k8s.example.com is reserved by AWS
 # =============================================================================
 # RKE2 Configuration
 # =============================================================================
-rke2_version = "v1.29"
+# rke2_version = "v1.29"
+rke2_version = "v1.34"

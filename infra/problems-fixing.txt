@@ -1,7 +1,0 @@
-❌ ISSUES FOUND:
-CRITICAL ISSUE 1: Missing domain_name parameter in k8s_master module
-The root main.tf is NOT passing the domain_name variable to the k8s_master module, but the userdata script requires it for TLS SANs configuration.
-
-Location: main.tf:81-94 - k8s_master module call
-
-Fix: Add domain_name parameter to the module call

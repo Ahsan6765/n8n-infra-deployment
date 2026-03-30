@@ -30,7 +30,7 @@ ssh_public_key = ""
 # =============================================================================
 master_instance_type = "t3.medium"
 worker_instance_type = "t3.large"
-worker_count         = 2
+worker_count         = 3
 master_count         = 1
 node_volume_size     = 50
 node_volume_type     = "gp3"

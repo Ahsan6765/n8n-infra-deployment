@@ -14,6 +14,7 @@ log() { echo "[$(date +'%Y-%m-%d %H:%M:%S')] $1"; }
 # ---- Parse named arguments ----
 MASTER_IP=""
 RKE2_TOKEN=""
+TOKEN_FILE=""
 ENVIRONMENT="dev"
 PROJECT_NAME="n8n"
 RKE2_VERSION="stable"
@@ -22,6 +23,7 @@ while [[ $# -gt 0 ]]; do
   case $1 in
     --master-ip)    MASTER_IP="$2";    shift 2 ;;
     --token)        RKE2_TOKEN="$2";   shift 2 ;;
+    --token-file)   TOKEN_FILE="$2";   shift 2 ;;
     --environment)  ENVIRONMENT="$2";  shift 2 ;;
     --project)      PROJECT_NAME="$2"; shift 2 ;;
     --rke2-version) RKE2_VERSION="$2"; shift 2 ;;
@@ -29,13 +31,21 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# ---- Read token from file if token-file specified ----
+if [ -n "$TOKEN_FILE" ] && [ -f "$TOKEN_FILE" ]; then
+  log "Reading token from file: $TOKEN_FILE"
+  RKE2_TOKEN=$(cat "$TOKEN_FILE")
+  # Remove token file immediately after reading for security
+  rm -f "$TOKEN_FILE"
+fi
+
 # ---- Validate required args ----
 if [ -z "$MASTER_IP" ]; then
   log "ERROR: --master-ip is required"
   exit 1
 fi
 if [ -z "$RKE2_TOKEN" ]; then
-  log "ERROR: --token is required"
+  log "ERROR: --token or --token-file is required"
   exit 1
 fi
 

@@ -12,6 +12,7 @@ exec > >(tee -a "$LOG_FILE") 2>&1
 log() { echo "[$(date +'%Y-%m-%d %H:%M:%S')] $1"; }
 
 # ---- Parse arguments ----
+RKE2_TOKEN=""
 DOMAIN=""
 ENVIRONMENT="dev"
 PROJECT="n8n"
@@ -19,20 +20,28 @@ RKE2_VERSION="stable"
 
 while [[ $# -gt 0 ]]; do
   case $1 in
-    --domain)      DOMAIN="$2";      shift 2 ;;
-    --environment) ENVIRONMENT="$2"; shift 2 ;;
-    --project)     PROJECT="$2";     shift 2 ;;
+    --token)        RKE2_TOKEN="$2";   shift 2 ;;
+    --domain)       DOMAIN="$2";       shift 2 ;;
+    --environment)  ENVIRONMENT="$2";  shift 2 ;;
+    --project)      PROJECT="$2";      shift 2 ;;
     --rke2-version) RKE2_VERSION="$2"; shift 2 ;;
     *) log "Unknown parameter: $1"; exit 1 ;;
   esac
 done
 
+# ---- Validate required parameters ----
+if [ -z "$RKE2_TOKEN" ]; then
+  log "ERROR: --token parameter is required"
+  exit 1
+fi
+
 log "=========================================="
 log "RKE2 Master Node Setup Starting"
+log "Token length: ${#RKE2_TOKEN}"
 log "Domain:      ${DOMAIN:-<none>}"
 log "Environment: $ENVIRONMENT"
 log "Project:     $PROJECT"
-log "RKE2 Ver:   $RKE2_VERSION"
+log "RKE2 Ver:    $RKE2_VERSION"
 log "=========================================="
 
 # ---- Root check ----
@@ -54,7 +63,7 @@ sed -i '/swap/d' /etc/fstab || true
 
 # ---- Kernel modules ----
 log "Loading kernel modules..."
-modprobe overlay   || true
+modprobe overlay      || true
 modprobe br_netfilter || true
 
 mkdir -p /etc/modules-load.d
@@ -72,23 +81,45 @@ net.ipv4.ip_forward                 = 1
 EOF
 sysctl --system > /dev/null 2>&1 || true
 
-# ---- Get instance IPs ----
-PRIVATE_IP=$(curl -s --connect-timeout 5 http://169.254.169.254/latest/meta-data/local-ipv4 2>/dev/null || hostname -I | awk '{print $1}')
-PUBLIC_IP=$(curl -s --connect-timeout 5 http://169.254.169.254/latest/meta-data/public-ipv4 2>/dev/null || echo "")
+# ---- Get instance IPs via IMDSv2 ----
+# FIX: Use IMDSv2 session token — required when http_tokens = "required" (IMDSv2-only).
+# Plain IMDSv1 curl calls return empty silently, causing PUBLIC_IP = "" and a
+# broken TLS SAN entry of - "" in config.yaml.
+log "Fetching instance IPs via IMDSv2..."
+IMDS_TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" \
+  -H "X-aws-ec2-metadata-token-ttl-seconds: 21600" \
+  --connect-timeout 5 2>/dev/null || echo "")
+
+if [ -n "$IMDS_TOKEN" ]; then
+  PRIVATE_IP=$(curl -s -H "X-aws-ec2-metadata-token: $IMDS_TOKEN" \
+    http://169.254.169.254/latest/meta-data/local-ipv4 \
+    --connect-timeout 5 2>/dev/null || hostname -I | awk '{print $1}')
+  PUBLIC_IP=$(curl -s -H "X-aws-ec2-metadata-token: $IMDS_TOKEN" \
+    http://169.254.169.254/latest/meta-data/public-ipv4 \
+    --connect-timeout 5 2>/dev/null || echo "")
+else
+  log "WARNING: Could not obtain IMDSv2 token, falling back to hostname"
+  PRIVATE_IP=$(hostname -I | awk '{print $1}')
+  PUBLIC_IP=""
+fi
 log "Private IP: $PRIVATE_IP  |  Public IP: ${PUBLIC_IP:-<unknown>}"
 
 # ---- Create RKE2 config ----
 log "Creating RKE2 config..."
 mkdir -p /etc/rancher/rke2
 
-TLS_SANS="  - \"$PRIVATE_IP\""
-[ -n "$PUBLIC_IP" ] && TLS_SANS="$TLS_SANS
-  - \"$PUBLIC_IP\""
-[ -n "$DOMAIN" ] && TLS_SANS="$TLS_SANS
-  - \"$DOMAIN\""
+# FIX: Build TLS SAN list safely — only append a value if it is non-empty.
+# Previously, an empty PUBLIC_IP produced `- ""` in the YAML which is valid
+# YAML but causes RKE2 TLS bootstrap to fail with a certificate error.
+TLS_SANS_LIST=()
+[ -n "$PRIVATE_IP" ] && TLS_SANS_LIST+=("  - \"$PRIVATE_IP\"")
+[ -n "$PUBLIC_IP"  ] && TLS_SANS_LIST+=("  - \"$PUBLIC_IP\"")
+[ -n "$DOMAIN"     ] && TLS_SANS_LIST+=("  - \"$DOMAIN\"")
+TLS_SANS=$(printf "%s\n" "${TLS_SANS_LIST[@]}")
 
 cat > /etc/rancher/rke2/config.yaml <<EOF
 write-kubeconfig-mode: "0644"
+token: "$RKE2_TOKEN"
 tls-san:
 $TLS_SANS
 cluster-cidr: "10.42.0.0/16"
@@ -103,7 +134,7 @@ EOF
 log "RKE2 config written."
 
 # ---- Install RKE2 ----
-log "Installing RKE2 server (channel: $RKE2_VERSION)..."
+log "Installing RKE2 server (channel/version: $RKE2_VERSION)..."
 if [[ "$RKE2_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]]; then
   curl -sfL https://get.rke2.io | INSTALL_RKE2_VERSION="$RKE2_VERSION" sh -
 else
@@ -133,20 +164,6 @@ until systemctl is-active --quiet rke2-server.service; do
 done
 log "rke2-server is active."
 
-# ---- Wait for node-token ----
-log "Waiting for node-token file (max 5 min)..."
-WAITED=0
-MAX_WAIT=300
-until [ -f /var/lib/rancher/rke2/server/node-token ]; do
-  sleep 5
-  WAITED=$((WAITED + 5))
-  if [ $WAITED -ge $MAX_WAIT ]; then
-    log "ERROR: node-token never appeared"
-    exit 1
-  fi
-done
-log "node-token found."
-
 # ---- Wait for rke2.yaml (kubeconfig) ----
 log "Waiting for rke2.yaml kubeconfig to appear (max 5 min)..."
 WAITED=0
@@ -161,12 +178,6 @@ until [ -f /etc/rancher/rke2/rke2.yaml ]; do
   fi
 done
 log "rke2.yaml exists."
-
-# ---- Save token for Terraform to retrieve ----
-TOKEN=$(cat /var/lib/rancher/rke2/server/node-token)
-echo "$TOKEN" > /tmp/rke2-token.txt
-chmod 644 /tmp/rke2-token.txt
-log "Token saved to /tmp/rke2-token.txt (length: ${#TOKEN})"
 
 # ---- Copy kubeconfig for Terraform retrieval ----
 cp /etc/rancher/rke2/rke2.yaml /tmp/kubeconfig.yaml
@@ -195,6 +206,5 @@ ln -sf /var/lib/rancher/rke2/bin/kubectl /usr/local/bin/kubectl 2>/dev/null || t
 
 log "=========================================="
 log "RKE2 Master Setup Completed Successfully"
-log "Token:     /tmp/rke2-token.txt"
 log "Kubeconfig: /tmp/kubeconfig.yaml"
 log "=========================================="

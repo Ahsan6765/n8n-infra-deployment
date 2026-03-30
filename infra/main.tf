@@ -18,8 +18,34 @@ resource "local_sensitive_file" "private_key" {
   file_permission = "0600"
 }
 
+# -----------------------------------------------------------------------------
+# Generate RKE2 cluster join token
+#
+# FIX 1: special = false — special characters like ?, {, }, [, ], (, ), =, >
+# corrupt the token when Terraform interpolates it into shell args and YAML.
+# Even single-quoted shell args do not fully protect all special chars.
+#
+# FIX 2: Removed the "K10" prefix from the local.
+# "K10..." is RKE2's internal format for full bootstrap tokens
+# (K10<64-char-hex-hash>::<username>:<password>). When RKE2 sees a token
+# starting with K10 but not matching that full format, it throws:
+# "failed to normalize server token; must be in format K10<CA-HASH>::..."
+# and crashes immediately. A plain alphanumeric string is the correct
+# format for a user-supplied password token.
+# -----------------------------------------------------------------------------
+resource "random_password" "rke2_token" {
+  length  = 64
+  special = false
+  upper   = true
+  lower   = true
+  numeric = true
+}
+
 locals {
   effective_public_key = var.ssh_public_key != "" ? var.ssh_public_key : tls_private_key.cluster[0].public_key_openssh
+
+  # Plain alphanumeric string — safe in YAML, shell args, and RKE2 config.
+  rke2_token = random_password.rke2_token.result
 }
 
 # -----------------------------------------------------------------------------
@@ -81,8 +107,9 @@ module "security_groups" {
   admin_ssh_cidr = var.admin_ssh_cidr
 }
 
+# -----------------------------------------------------------------------------
 # K8s Master Node(s) – RKE2 server (scalable via master_count variable)
-# =============================================================================
+# -----------------------------------------------------------------------------
 module "k8s_master" {
   count  = var.master_count
   source = "./modules/k8s_master"
@@ -98,15 +125,16 @@ module "k8s_master" {
   volume_size          = var.node_volume_size
   volume_type          = var.node_volume_type
   rke2_version         = var.rke2_version
+  rke2_token           = local.rke2_token
   domain_name          = var.domain_name
   aws_region           = var.aws_region
-  ssh_private_key_path = var.ssh_private_key_path
+  ssh_private_key_path = var.ssh_private_key_path != "" ? var.ssh_private_key_path : "${path.root}/cluster-key.pem"
   scripts_dir          = "${path.root}/scripts"
 }
 
 # -----------------------------------------------------------------------------
 # K8s Worker Nodes – RKE2 agents (scalable via worker_count variable)
-# =============================================================================
+# -----------------------------------------------------------------------------
 module "k8s_workers" {
   source = "./modules/k8s_worker"
 
@@ -123,14 +151,12 @@ module "k8s_workers" {
   volume_type          = var.node_volume_type
   rke2_version         = var.rke2_version
   master_private_ip    = module.k8s_master[0].private_ip
-  rke2_token           = module.k8s_master[0].rke2_token
+  rke2_token           = local.rke2_token
   aws_region           = var.aws_region
-  ssh_private_key_path = var.ssh_private_key_path
+  ssh_private_key_path = var.ssh_private_key_path != "" ? var.ssh_private_key_path : "${path.root}/cluster-key.pem"
   scripts_dir          = "${path.root}/scripts"
 
-  # Explicit dependency: workers must not start until master is fully provisioned.
-  # The rke2_token input creates an implicit data dependency on the master module.
-  # depends_on enforces the entire module completion including all provisioners.
+  # Explicit dependency: workers must not start until master is fully provisioned
   depends_on = [
     module.k8s_master,
   ]

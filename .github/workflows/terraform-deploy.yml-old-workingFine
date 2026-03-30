@@ -1,31 +1,25 @@
-name: Terraform Deploy — Dev
+name: Terraform Deploy
 
 on:
-  workflow_dispatch:
-    inputs:
-      action:
-        description: "Terraform action to run"
-        required: true
-        default: "plan"
-        type: choice
-        options:
-          - plan
-          - apply
-          - destroy
+  push:
+    branches:
+      - main
+  pull_request:
+    branches:
+      - main
 
 env:
   TF_VERSION: "1.9.0"
+  AWS_REGION: ${{ secrets.AWS_REGION }}
   TF_IN_AUTOMATION: "true"
 
 jobs:
   # ────────────────────────────────
-  # JOB 1 — Plan
-  # Runs when action = plan OR apply (apply needs the saved plan)
+  # JOB 1 — Plan (runs on every PR and push to main)
   # ────────────────────────────────
   plan:
     name: Terraform Plan
     runs-on: ubuntu-22.04
-    if: github.event.inputs.action == 'plan' || github.event.inputs.action == 'apply'
 
     steps:
       - name: Checkout Code
@@ -41,7 +35,7 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
+          aws-region: ${{ env.AWS_REGION }}
 
       - name: Terraform Init
         working-directory: infra
@@ -67,16 +61,14 @@ jobs:
           retention-days: 7
 
   # ────────────────────────────────
-  # JOB 2 — Apply
-  # Runs only when action = apply, after plan completes
-  # Requires manual approval via GitHub Environment protection rule
+  # JOB 2 — Apply (runs only on push to main)
   # ────────────────────────────────
   apply:
     name: Terraform Apply
     runs-on: ubuntu-22.04
     needs: plan
-    if: github.event.inputs.action == 'apply'
-    environment: dev        # ← approval gate configured in Settings → Environments → dev
+    # Only runs on push to main, never on PRs
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
 
     steps:
       - name: Checkout Code
@@ -92,7 +84,7 @@ jobs:
         with:
           aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
+          aws-region: ${{ env.AWS_REGION }}
 
       - name: Terraform Init
         working-directory: infra
@@ -107,42 +99,3 @@ jobs:
       - name: Terraform Apply
         working-directory: infra
         run: terraform apply -input=false -auto-approve tfplan
-
-  # ────────────────────────────────
-  # JOB 3 — Destroy
-  # Runs only when action = destroy
-  # Also requires manual approval via the same GitHub Environment gate
-  # ────────────────────────────────
-  destroy:
-    name: Terraform Destroy
-    runs-on: ubuntu-22.04
-    if: github.event.inputs.action == 'destroy'
-    environment: dev        # ← same approval gate protects destroy too
-
-    steps:
-      - name: Checkout Code
-        uses: actions/checkout@v4
-
-      - name: Setup Terraform
-        uses: hashicorp/setup-terraform@v3
-        with:
-          terraform_version: ${{ env.TF_VERSION }}
-
-      - name: Configure AWS Credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: ${{ secrets.AWS_REGION }}
-
-      - name: Terraform Init
-        working-directory: infra
-        run: terraform init -input=false
-
-      - name: Terraform Destroy
-        working-directory: infra
-        run: |
-          terraform destroy \
-            -input=false \
-            -auto-approve \
-            -var-file="terraform.tfvars"

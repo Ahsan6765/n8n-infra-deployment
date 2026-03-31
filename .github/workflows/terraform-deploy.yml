@@ -94,9 +94,9 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
-      # - name: Terraform Init
-      #   working-directory: infra
-      #   run: terraform init -input=false
+      - name: Terraform Init
+        working-directory: infra
+        run: terraform init -input=false
 
       - name: Download Plan Artifact
         uses: actions/download-artifact@v4
@@ -135,9 +135,9 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: ${{ secrets.AWS_REGION }}
 
-      # - name: Terraform Init
-      #   working-directory: infra
-      #   run: terraform init -input=false
+      - name: Terraform Init
+        working-directory: infra
+        run: terraform init -input=false
 
       - name: Terraform Destroy
         working-directory: infra

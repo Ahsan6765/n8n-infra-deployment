@@ -29,7 +29,7 @@ artifact_bucket_name  = "n8n-k8s-artifacts-staging"
 state_lock_table_name = "n8n-k8s-tf-lock-staging"
 
 # DNS Configuration
-domain_name         = "staging.k8s.example.com"
+domain_name         = "ahsan.wssolutionsprovider.com"
 create_route53_zone = true
 
 # SSH Key

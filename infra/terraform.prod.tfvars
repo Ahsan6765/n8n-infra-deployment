@@ -29,7 +29,7 @@ artifact_bucket_name  = "n8n-k8s-artifacts-prod"
 state_lock_table_name = "n8n-k8s-tf-lock-prod"
 
 # DNS Configuration
-domain_name         = "k8s.example.com"
+domain_name         = "ahsan.wssolutionsprovider.com"
 create_route53_zone = false # Assumes zone already exists in production
 
 # SSH Key - SHOULD USE EXISTING KEY IN PRODUCTION

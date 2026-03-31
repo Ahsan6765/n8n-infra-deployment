@@ -29,7 +29,7 @@ artifact_bucket_name  = "n8n-k8s-artifacts-dev"
 state_lock_table_name = "n8n-k8s-tf-lock-dev"
 
 # DNS Configuration
-domain_name         = "dev.k8s.example.com"
+domain_name         = "ahsan.wssolutionsprovider.com"
 create_route53_zone = true
 
 # SSH Key

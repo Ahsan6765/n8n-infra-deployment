@@ -36,4 +36,5 @@ create_route53_zone = true
 ssh_public_key = ""
 
 # RKE2 Configuration
-rke2_version = "v1.29"
+# rke2_version = "v1.29"
+rke2_version = "v1.34"

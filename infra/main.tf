@@ -20,18 +20,6 @@ resource "local_sensitive_file" "private_key" {
 
 # -----------------------------------------------------------------------------
 # Generate RKE2 cluster join token
-#
-# FIX 1: special = false — special characters like ?, {, }, [, ], (, ), =, >
-# corrupt the token when Terraform interpolates it into shell args and YAML.
-# Even single-quoted shell args do not fully protect all special chars.
-#
-# FIX 2: Removed the "K10" prefix from the local.
-# "K10..." is RKE2's internal format for full bootstrap tokens
-# (K10<64-char-hex-hash>::<username>:<password>). When RKE2 sees a token
-# starting with K10 but not matching that full format, it throws:
-# "failed to normalize server token; must be in format K10<CA-HASH>::..."
-# and crashes immediately. A plain alphanumeric string is the correct
-# format for a user-supplied password token.
 # -----------------------------------------------------------------------------
 resource "random_password" "rke2_token" {
   length  = 64

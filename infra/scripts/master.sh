@@ -1,3 +1,231 @@
+# #!/bin/bash
+# # =============================================================================
+# # RKE2 Master Node Setup Script
+# # =============================================================================
+# set -e
+# set -o pipefail
+
+# LOG_FILE="/var/log/rke2-master-setup.log"
+# mkdir -p "$(dirname "$LOG_FILE")"
+# exec > >(tee -a "$LOG_FILE") 2>&1
+
+# log() { echo "[$(date +'%Y-%m-%d %H:%M:%S')] $1"; }
+
+# # ---- Parse arguments ----
+# RKE2_TOKEN=""
+# DOMAIN=""
+# ENVIRONMENT="dev"
+# PROJECT="n8n"
+# RKE2_VERSION="stable"
+
+# while [[ $# -gt 0 ]]; do
+#   case $1 in
+#     --token)        RKE2_TOKEN="$2";   shift 2 ;;
+#     --domain)       DOMAIN="$2";       shift 2 ;;
+#     --environment)  ENVIRONMENT="$2";  shift 2 ;;
+#     --project)      PROJECT="$2";      shift 2 ;;
+#     --rke2-version) RKE2_VERSION="$2"; shift 2 ;;
+#     *) log "Unknown parameter: $1"; exit 1 ;;
+#   esac
+# done
+
+# # ---- Validate required parameters ----
+# if [ -z "$RKE2_TOKEN" ]; then
+#   log "ERROR: --token parameter is required"
+#   exit 1
+# fi
+
+# log "=========================================="
+# log "RKE2 Master Node Setup Starting"
+# log "Token length: ${#RKE2_TOKEN}"
+# log "Domain:      ${DOMAIN:-<none>}"
+# log "Environment: $ENVIRONMENT"
+# log "Project:     $PROJECT"
+# log "RKE2 Ver:    $RKE2_VERSION"
+# log "=========================================="
+
+# # ---- Root check ----
+# if [[ $EUID -ne 0 ]]; then
+#   log "ERROR: Must run as root (use sudo)"
+#   exit 1
+# fi
+
+# # ---- System prerequisites ----
+# log "Installing system packages..."
+# export DEBIAN_FRONTEND=noninteractive
+# apt-get update -y
+# apt-get install -y curl wget jq
+
+# # ---- Disable swap ----
+# log "Disabling swap..."
+# swapoff -a || true
+# sed -i '/swap/d' /etc/fstab || true
+
+# # ---- Kernel modules ----
+# log "Loading kernel modules..."
+# modprobe overlay      || true
+# modprobe br_netfilter || true
+
+# mkdir -p /etc/modules-load.d
+# cat > /etc/modules-load.d/rke2.conf <<'EOF'
+# overlay
+# br_netfilter
+# EOF
+
+# # ---- Kernel parameters ----
+# log "Configuring kernel parameters..."
+# cat > /etc/sysctl.d/99-kubernetes.conf <<'EOF'
+# net.bridge.bridge-nf-call-iptables  = 1
+# net.bridge.bridge-nf-call-ip6tables = 1
+# net.ipv4.ip_forward                 = 1
+# EOF
+# sysctl --system > /dev/null 2>&1 || true
+
+# # ---- Get instance IPs via IMDSv2 ----
+# # FIX: Use IMDSv2 session token — required when http_tokens = "required" (IMDSv2-only).
+# # Plain IMDSv1 curl calls return empty silently, causing PUBLIC_IP = "" and a
+# # broken TLS SAN entry of - "" in config.yaml.
+# log "Fetching instance IPs via IMDSv2..."
+# IMDS_TOKEN=$(curl -s -X PUT "http://169.254.169.254/latest/api/token" \
+#   -H "X-aws-ec2-metadata-token-ttl-seconds: 21600" \
+#   --connect-timeout 5 2>/dev/null || echo "")
+
+# if [ -n "$IMDS_TOKEN" ]; then
+#   PRIVATE_IP=$(curl -s -H "X-aws-ec2-metadata-token: $IMDS_TOKEN" \
+#     http://169.254.169.254/latest/meta-data/local-ipv4 \
+#     --connect-timeout 5 2>/dev/null || hostname -I | awk '{print $1}')
+#   PUBLIC_IP=$(curl -s -H "X-aws-ec2-metadata-token: $IMDS_TOKEN" \
+#     http://169.254.169.254/latest/meta-data/public-ipv4 \
+#     --connect-timeout 5 2>/dev/null || echo "")
+# else
+#   log "WARNING: Could not obtain IMDSv2 token, falling back to hostname"
+#   PRIVATE_IP=$(hostname -I | awk '{print $1}')
+#   PUBLIC_IP=""
+# fi
+# log "Private IP: $PRIVATE_IP  |  Public IP: ${PUBLIC_IP:-<unknown>}"
+
+# # ---- Create RKE2 config ----
+# log "Creating RKE2 config..."
+# mkdir -p /etc/rancher/rke2
+
+# # FIX: Build TLS SAN list safely — only append a value if it is non-empty.
+# # Previously, an empty PUBLIC_IP produced `- ""` in the YAML which is valid
+# # YAML but causes RKE2 TLS bootstrap to fail with a certificate error.
+# TLS_SANS_LIST=()
+# [ -n "$PRIVATE_IP" ] && TLS_SANS_LIST+=("  - \"$PRIVATE_IP\"")
+# [ -n "$PUBLIC_IP"  ] && TLS_SANS_LIST+=("  - \"$PUBLIC_IP\"")
+# [ -n "$DOMAIN"     ] && TLS_SANS_LIST+=("  - \"$DOMAIN\"")
+# TLS_SANS=$(printf "%s\n" "${TLS_SANS_LIST[@]}")
+
+# cat > /etc/rancher/rke2/config.yaml <<EOF
+# write-kubeconfig-mode: "0644"
+# token: "$RKE2_TOKEN"
+# tls-san:
+# $TLS_SANS
+# cluster-cidr: "10.42.0.0/16"
+# service-cidr: "10.43.0.0/16"
+# cni: canal
+# node-label:
+#   - "node-role=master"
+#   - "environment=$ENVIRONMENT"
+#   - "project=$PROJECT"
+# EOF
+
+# log "RKE2 config written."
+
+# # ---- Install RKE2 ----
+# log "Installing RKE2 server (channel/version: $RKE2_VERSION)..."
+# if [[ "$RKE2_VERSION" =~ ^v[0-9]+\.[0-9]+\.[0-9]+ ]]; then
+#   curl -sfL https://get.rke2.io | INSTALL_RKE2_VERSION="$RKE2_VERSION" sh -
+# else
+#   curl -sfL https://get.rke2.io | INSTALL_RKE2_CHANNEL="$RKE2_VERSION" sh -
+# fi
+# log "RKE2 installed."
+
+# # ---- Enable & start RKE2 server ----
+# log "Starting RKE2 server service..."
+# systemctl daemon-reload
+# systemctl enable rke2-server.service
+# systemctl start rke2-server.service
+
+# # ---- Wait for rke2-server to be active (up to 10 min) ----
+# log "Waiting for rke2-server service to become active (max 10 min)..."
+# WAITED=0
+# MAX_WAIT=600
+# until systemctl is-active --quiet rke2-server.service; do
+#   sleep 10
+#   WAITED=$((WAITED + 10))
+#   log "  [${WAITED}s] rke2-server still starting..."
+#   if [ $WAITED -ge $MAX_WAIT ]; then
+#     log "ERROR: rke2-server did not become active within $MAX_WAIT seconds"
+#     journalctl -u rke2-server -n 50 --no-pager || true
+#     exit 1
+#   fi
+# done
+# log "rke2-server is active."
+
+# # ---- Wait for rke2.yaml (kubeconfig) ----
+# log "Waiting for rke2.yaml kubeconfig to appear (max 5 min)..."
+# WAITED=0
+# MAX_WAIT=300
+# until [ -f /etc/rancher/rke2/rke2.yaml ]; do
+#   sleep 5
+#   WAITED=$((WAITED + 5))
+#   log "  [${WAITED}s] rke2.yaml not yet present..."
+#   if [ $WAITED -ge $MAX_WAIT ]; then
+#     log "ERROR: rke2.yaml never created"
+#     exit 1
+#   fi
+# done
+# log "rke2.yaml exists."
+
+# # ---- Copy kubeconfig for Terraform retrieval ----
+# cp /etc/rancher/rke2/rke2.yaml /tmp/kubeconfig.yaml
+# chmod 644 /tmp/kubeconfig.yaml
+# log "Kubeconfig copied to /tmp/kubeconfig.yaml"
+
+# # ---- Setup kubectl for ubuntu user ----
+# log "Configuring kubectl for ubuntu user..."
+# mkdir -p /home/ubuntu/.kube
+# cp /etc/rancher/rke2/rke2.yaml /home/ubuntu/.kube/config
+# chown -R ubuntu:ubuntu /home/ubuntu/.kube
+# chmod 600 /home/ubuntu/.kube/config
+
+# # ---- Add RKE2 bin to PATH ----
+# if ! grep -q "/var/lib/rancher/rke2/bin" /home/ubuntu/.bashrc 2>/dev/null; then
+#   cat >> /home/ubuntu/.bashrc <<'BASHRC'
+
+# # RKE2 binaries
+# export PATH=$PATH:/var/lib/rancher/rke2/bin
+# export KUBECONFIG=/home/ubuntu/.kube/config
+# BASHRC
+# fi
+
+# # ---- Create kubectl symlink ----
+# ln -sf /var/lib/rancher/rke2/bin/kubectl /usr/local/bin/kubectl 2>/dev/null || true
+
+# log "=========================================="
+# log "RKE2 Master Setup Completed Successfully"
+# log "Kubeconfig: /tmp/kubeconfig.yaml"
+# log "=========================================="
+
+
+
+
+
+
+
+
+# ==============================================================================
+# uper wali script correct ha. So dont delete it.
+# ==============================================================================
+
+
+
+
+
+
+
 #!/bin/bash
 # =============================================================================
 # RKE2 Master Node Setup Script
@@ -16,7 +244,7 @@ RKE2_TOKEN=""
 DOMAIN=""
 ENVIRONMENT="dev"
 PROJECT="n8n"
-RKE2_VERSION="stable"
+RKE2_VERSION="v1.34"
 
 while [[ $# -gt 0 ]]; do
   case $1 in
@@ -207,4 +435,4 @@ ln -sf /var/lib/rancher/rke2/bin/kubectl /usr/local/bin/kubectl 2>/dev/null || t
 log "=========================================="
 log "RKE2 Master Setup Completed Successfully"
 log "Kubeconfig: /tmp/kubeconfig.yaml"
-log "=========================================="
+# log "=========================================="

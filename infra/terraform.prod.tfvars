@@ -36,4 +36,5 @@ create_route53_zone = false # Assumes zone already exists in production
 ssh_public_key = ""
 
 # RKE2 Configuration - Stable version
-rke2_version = "v1.29"
+# rke2_version = "v1.29"
+rke2_version = "v1.34"

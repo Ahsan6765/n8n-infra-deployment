@@ -73,11 +73,11 @@ output "private_key_pem_path" {
   sensitive   = true
 }
 
-# ---- S3 ----
-output "artifact_bucket_name" {
-  description = "Name of the cluster artifacts S3 bucket."
-  value       = module.s3.artifact_bucket_name
-}
+# # ---- S3 ----
+# output "artifact_bucket_name" {
+#   description = "Name of the cluster artifacts S3 bucket."
+#   value       = module.s3.artifact_bucket_name
+# }
 
 # ---- IAM ----
 output "node_iam_role_arn" {

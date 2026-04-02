@@ -164,6 +164,21 @@ data "aws_iam_policy_document" "node_permissions" {
     ]
     resources = ["*"]
   }
+
+  # EBS for dynamic volume provisioning
+  # statement {
+  #   effect = "Allow"
+  #   actions = [
+  #     "ec2:DescribeVolumes",
+  #     "ec2:DescribeVolumesModifications",
+  #     "ec2:CreateVolume",
+  #     "ec2:AttachVolume",
+  #     "ec2:DetachVolume",
+  #     "ec2:DeleteVolume",
+  #     "ec2:ModifyVolume",
+  #   ]
+  #   resources = ["*"]
+  # }
 }
 
 resource "aws_iam_role_policy" "node" {

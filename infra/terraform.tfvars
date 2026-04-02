@@ -1,9 +1,4 @@
 # =============================================================================
-# Terraform Variables - Default Configuration
-# Environment: Can be overridden with specific environment tfvars files
-# =============================================================================
-
-# =============================================================================
 # General Configuration
 # =============================================================================
 aws_region   = "us-east-1"
@@ -44,9 +39,8 @@ artifact_bucket_name = "n8n-k8s-artifacts"
 # =============================================================================
 # Route 53 / DNS Configuration
 # =============================================================================
-# domain_name         = "example.com"       
 domain_name         = "ahsan.wssolutionsprovider.com"
-create_route53_zone = false # Disabled: k8s.example.com is reserved by AWS
+create_route53_zone = false 
 
 
 

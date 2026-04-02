@@ -1,0 +1,51 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: postgres-ha
+---
+apiVersion: postgresql.cnpg.io/v1
+kind: Cluster
+metadata:
+  name: ha-postgres
+  namespace: postgres-ha
+spec:
+  instances: 3   # 1 primary + 2 replicas
+  storage:
+    size: 5Gi                 
+    storageClass: ebs-storageclass
+  postgresql:
+    parameters:
+      max_connections: "200"
+      shared_buffers: "256MB" 
+  monitoring:
+    enablePodMonitor: true
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ha-postgres-primary
+  namespace: postgres-ha
+spec:
+  type: ClusterIP
+  selector:
+    cnpg.io/cluster: ha-postgres
+    role: primary
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ha-postgres-replicas
+  namespace: postgres-ha
+spec:
+  type: ClusterIP
+  selector:
+    cnpg.io/cluster: ha-postgres
+    role: replica
+  ports:
+    - name: postgres
+      port: 5432
+      targetPort: 5432

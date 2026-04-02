@@ -13,8 +13,8 @@ public_subnet_cidrs = ["10.0.1.0/24", "10.0.2.0/24", "10.0.3.0/24"]
 availability_zones  = ["us-east-1a", "us-east-1b", "us-east-1c"]
 
 # EC2 Configuration - Cost optimized for development
-master_instance_type = "t3.small"
-worker_instance_type = "t3.small"
+master_instance_type = "t3.medium"
+worker_instance_type = "t3.large"
 worker_count         = 1 # Minimal for dev
 master_count         = 1
 node_volume_size     = 30
